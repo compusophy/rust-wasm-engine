@@ -1629,32 +1629,6 @@
 
   const statsEl = document.getElementById('stats');
   const statsPtr = wasm.stats_ptr();
-  const questsEl = document.getElementById('quests');
-  let lastQuestJson = '';
-  function renderQuests() {
-    const len = wasm.quest_json_len();
-    if (len === 0) { questsEl.innerHTML = ''; return; }
-    const jsonStr = decoder.decode(new Uint8Array(memory.buffer, wasm.quest_json_ptr(), len));
-    if (jsonStr === lastQuestJson) return;
-    lastQuestJson = jsonStr;
-    localStorage.setItem(QUEST_SAVE_KEY, jsonStr);
-    let arr;
-    try { arr = JSON.parse(jsonStr); } catch (_) { return; }
-    const html = arr.filter((q) => !q.turnedIn).map((q) => {
-      const allDone = q.objectives.every((o) => o.progress >= o.required);
-      const cls = !q.accepted ? 'new' : (allDone ? 'done' : '');
-      const body = !q.accepted
-        ? `<div class="sub">${q.desc}<br>approach giver to accept</div>`
-        : q.objectives.map((o) => {
-            const done = o.progress >= o.required;
-            return `<div class="obj${done ? ' done' : ''}">• ${o.desc} (${o.progress}/${o.required})</div>`;
-          }).join('');
-      const footer = q.accepted && allDone
-        ? `<div class="sub ready">return to giver</div>` : '';
-      return `<div class="q ${cls}"><div class="title">${q.title}</div>${body}${footer}</div>`;
-    }).join('');
-    questsEl.innerHTML = html;
-  }
 
   const mmCanvas = document.getElementById('minimap');
   const mmCtx = mmCanvas.getContext('2d');
@@ -2022,7 +1996,6 @@
     wasm.frame(dt);
 
     if (hudTick % 3 === 0) drawMinimap();
-    if (hudTick % 6 === 0) renderQuests();
     updateNameplate();
 
     if (++hudTick % 5 === 0) {
