@@ -218,9 +218,12 @@
      sized for a thumb reach (~48-64 px minimum, bigger on mobile). Both
      anchor to the viewport and don't get covered by the minimap (which
      moved to top-right on touch). */
+  /* Sized to coexist on a ~360px phone: joystick on the left, jump + attack
+     stacked on the right, clear gap in the middle. Use min(px, vw) so we
+     scale up slightly on larger handsets without overlapping on small ones. */
   #stick {
-    position: fixed; left: 24px; bottom: 24px;
-    width: 180px; height: 180px;
+    position: fixed; left: 18px; bottom: 18px;
+    width: min(140px, 34vw); height: min(140px, 34vw);
     display: none; z-index: 8;
     touch-action: none; user-select: none;
     -webkit-user-select: none;
@@ -235,7 +238,8 @@
   }
   #stick_thumb {
     position: absolute; left: 50%; top: 50%;
-    width: 78px; height: 78px; margin-left: -39px; margin-top: -39px;
+    width: 44%; height: 44%;
+    margin-left: -22%; margin-top: -22%;
     border-radius: 50%;
     background: rgba(255,255,255,0.42);
     border: 2px solid rgba(255,255,255,0.62);
@@ -246,24 +250,24 @@
   #stick.active #stick_thumb { background: rgba(240,214,130,0.55); border-color: #f0d682; }
 
   #touchpad {
-    position: fixed; right: 24px; bottom: 24px;
+    position: fixed; right: 18px; bottom: 18px;
     display: none; pointer-events: none; z-index: 7;
     touch-action: none; user-select: none; -webkit-user-select: none;
   }
   #touchpad.on { display: block; }
   /* When the touchpad is on, move the minimap OFF the bottom-right so it
      doesn't sit under the attack button. */
-  body.touch #minimap { top: 12px; right: 12px; bottom: auto; width: 140px; height: 140px; }
-  body.touch #stats { top: 162px; font-size: 10px; }
+  body.touch #minimap { top: 12px; right: 12px; bottom: auto; width: 120px; height: 120px; }
+  body.touch #stats { top: 142px; font-size: 10px; }
   #touchpad button {
     position: absolute; pointer-events: auto;
     border: 2px solid rgba(255,255,255,0.32);
     background: rgba(0,0,0,0.42);
-    color: #fff; font: 800 18px system-ui, sans-serif; letter-spacing: 1.5px;
+    color: #fff; font: 800 16px system-ui, sans-serif; letter-spacing: 1.5px;
     border-radius: 50%; padding: 0;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    touch-action: none;
+    touch-action: manipulation;
     transition: transform 0.08s, background 0.1s;
     box-shadow: 0 2px 22px rgba(0,0,0,0.5);
   }
@@ -271,9 +275,20 @@
     background: rgba(240, 214, 130, 0.45);
     transform: scale(0.94);
   }
-  /* Big primary action buttons — easy thumb targets. */
-  #btn_attack { right: 0; bottom: 0; width: 150px; height: 150px; font-size: 22px; color: #ffd9d0; border-color: rgba(255,140,110,0.65); }
-  #btn_jump   { right: 160px; bottom: 40px; width: 120px; height: 120px; font-size: 18px; color: #d8e7ff; border-color: rgba(130,180,255,0.65); }
+  /* Attack (primary) anchored bottom-right; jump (secondary) offset up+left
+     so both are in easy thumb reach and neither touches the joystick. */
+  #btn_attack {
+    right: 0; bottom: 0;
+    width: min(100px, 24vw); height: min(100px, 24vw);
+    font-size: 15px;
+    color: #ffd9d0; border-color: rgba(255,140,110,0.65);
+  }
+  #btn_jump {
+    right: calc(min(100px, 24vw) + 14px); bottom: 18px;
+    width: min(82px, 20vw); height: min(82px, 20vw);
+    font-size: 13px;
+    color: #d8e7ff; border-color: rgba(130,180,255,0.65);
+  }
 </style>
 </head>
 <body>
