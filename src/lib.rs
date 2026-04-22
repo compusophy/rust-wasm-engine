@@ -1166,7 +1166,11 @@ unsafe fn render_preview(s: &State, _dt: f32) {
     let t = s.t;
     let spin = t * 0.35;
     ENTITIES[s.player_body_idx].pos = V3::new(0.0, feet_y, 0.0);
-    ENTITIES[s.player_body_idx].yaw = PI;  // face camera
+    // Camera orbits the character at (sin*dist, y, cos*dist). Mesh forward
+    // is +Z in its local frame, so yaw = spin puts the mesh front-face toward
+    // the orbiting camera at every angle — no more looking at the back of
+    // the character on the creation screen.
+    ENTITIES[s.player_body_idx].yaw = spin;
     ENTITIES[s.player_body_idx].hidden = false;
 
     let body_mid_y = 0.95;
