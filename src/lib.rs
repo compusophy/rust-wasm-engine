@@ -1665,6 +1665,11 @@ const PLAYER_R: f32 = 0.35;
 const MOVE_SPEED: f32 = 5.5;
 const SPRINT_MULT: f32 = 1.8;
 const MOUSE_SENS: f32 = 0.0025;
+
+// WoW-style starting tilt: camera sits behind and above the player looking
+// down at ~23°, not level with the warrior's eyeline. Negative pitch tilts
+// the look vector downward (look.y = sin(pitch)).
+const INITIAL_PITCH: f32 = -0.40;
 const GRAVITY: f32 = 25.0;
 const JUMP_V: f32 = 8.0;
 
@@ -1760,7 +1765,7 @@ pub extern "C" fn init(w: u32, h: u32) {
             scene_shader, sky_shader,
             sky_mesh,
             cam_x: 0.0, cam_y: EYE_H, cam_z: 8.0, vy: 0.0,
-            yaw: 0.0, pitch: 0.0,
+            yaw: 0.0, pitch: INITIAL_PITCH,
             w: false, a: false, s: false, d: false, space: false, shift: false, ctrl: false,
             canvas_w: w, canvas_h: h,
             t: 0.0,
@@ -1837,7 +1842,7 @@ pub extern "C" fn on_key(code: u32, down: u32) {
                 25 => if v { s.time_scale = 1.0; },
                 27 => if v {
                     s.cam_x = 0.0; s.cam_y = EYE_H; s.cam_z = 8.0;
-                    s.vy = 0.0; s.yaw = 0.0; s.pitch = 0.0;
+                    s.vy = 0.0; s.yaw = 0.0; s.pitch = INITIAL_PITCH;
                 },
                 _ => {}
             }

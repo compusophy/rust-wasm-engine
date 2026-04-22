@@ -214,81 +214,91 @@
   #help .key { color: #f8c96a; white-space: nowrap; }
   #help .hint { margin-top: 14px; opacity: 0.6; font-size: 12px; }
   /* ---- Mobile controls ----
-     Joystick lives bottom-left; action buttons bottom-right. All targets are
-     sized for a thumb reach (~48-64 px minimum, bigger on mobile). Both
-     anchor to the viewport and don't get covered by the minimap (which
-     moved to top-right on touch). */
-  /* Sized to coexist on a ~360px phone: joystick on the left, jump + attack
-     stacked on the right, clear gap in the middle. Use min(px, vw) so we
-     scale up slightly on larger handsets without overlapping on small ones. */
-  #stick {
-    position: fixed; left: 18px; bottom: 18px;
-    width: min(140px, 34vw); height: min(140px, 34vw);
-    display: none; z-index: 8;
+     Two floating joysticks: left half of screen drives movement (WASD),
+     right half drives camera facing (look). Each zone spans ~half the
+     viewport so the user can thumb anywhere in their side to activate the
+     stick — the base + thumb spring to the first touch point and follow
+     the drag. Jump + attack buttons sit above the zones, peripheral to
+     each stick, small enough to leave thumb room for the sticks. */
+  .stick_zone {
+    position: fixed; bottom: 0;
+    width: 50vw; height: 62vh;
+    display: none; z-index: 5;
     touch-action: none; user-select: none;
     -webkit-user-select: none;
   }
-  #stick.on { display: block; }
-  #stick_base {
-    position: absolute; inset: 0; border-radius: 50%;
-    background: rgba(0,0,0,0.38);
-    border: 2px solid rgba(255,255,255,0.30);
+  body.touch .stick_zone { display: block; }
+  #stick_left  { left: 0; }
+  #stick_right { right: 0; }
+  .stick_base {
+    position: absolute;
+    width: min(150px, 38vw); height: min(150px, 38vw);
+    border-radius: 50%;
+    background: rgba(0,0,0,0.40);
+    border: 2px solid rgba(255,255,255,0.28);
+    transform: translate(-50%, -50%);
+    display: none; pointer-events: none;
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
     box-shadow: 0 2px 22px rgba(0,0,0,0.5);
   }
-  #stick_thumb {
-    position: absolute; left: 50%; top: 50%;
-    width: 44%; height: 44%;
-    margin-left: -22%; margin-top: -22%;
+  .stick_thumb {
+    position: absolute;
+    width: min(68px, 17vw); height: min(68px, 17vw);
     border-radius: 50%;
     background: rgba(255,255,255,0.42);
     border: 2px solid rgba(255,255,255,0.62);
-    transition: background 0.08s;
-    pointer-events: none;
-    will-change: transform;
+    transform: translate(-50%, -50%);
+    display: none; pointer-events: none;
+    will-change: transform, left, top;
   }
-  #stick.active #stick_thumb { background: rgba(240,214,130,0.55); border-color: #f0d682; }
+  .stick_zone.active .stick_base,
+  .stick_zone.active .stick_thumb { display: block; }
+  .stick_zone.active .stick_thumb {
+    background: rgba(240,214,130,0.55);
+    border-color: #f0d682;
+  }
 
+  /* Jump + attack: small, peripheral, anchored just above the top of each
+     stick zone so the thumb can lift up from the stick to tap without
+     crossing the screen. */
   #touchpad {
-    position: fixed; right: 18px; bottom: 18px;
-    display: none; pointer-events: none; z-index: 7;
-    touch-action: none; user-select: none; -webkit-user-select: none;
+    position: fixed; inset: 0;
+    display: none; pointer-events: none; z-index: 8;
   }
-  #touchpad.on { display: block; }
-  /* When the touchpad is on, move the minimap OFF the bottom-right so it
-     doesn't sit under the attack button. */
-  body.touch #minimap { top: 12px; right: 12px; bottom: auto; width: 120px; height: 120px; }
-  body.touch #stats { top: 142px; font-size: 10px; }
+  body.touch #touchpad { display: block; }
   #touchpad button {
     position: absolute; pointer-events: auto;
     border: 2px solid rgba(255,255,255,0.32);
     background: rgba(0,0,0,0.42);
-    color: #fff; font: 800 16px system-ui, sans-serif; letter-spacing: 1.5px;
+    color: #fff; font: 800 13px system-ui, sans-serif; letter-spacing: 1.5px;
     border-radius: 50%; padding: 0;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     touch-action: manipulation;
     transition: transform 0.08s, background 0.1s;
-    box-shadow: 0 2px 22px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 18px rgba(0,0,0,0.5);
   }
   #touchpad button:active {
     background: rgba(240, 214, 130, 0.45);
     transform: scale(0.94);
   }
-  /* Attack (primary) anchored bottom-right; jump (secondary) offset up+left
-     so both are in easy thumb reach and neither touches the joystick. */
-  #btn_attack {
-    right: 0; bottom: 0;
-    width: min(100px, 24vw); height: min(100px, 24vw);
-    font-size: 15px;
-    color: #ffd9d0; border-color: rgba(255,140,110,0.65);
-  }
   #btn_jump {
-    right: calc(min(100px, 24vw) + 14px); bottom: 18px;
-    width: min(82px, 20vw); height: min(82px, 20vw);
-    font-size: 13px;
-    color: #d8e7ff; border-color: rgba(130,180,255,0.65);
+    left: 20px; bottom: calc(62vh + 12px);
+    width: min(62px, 15vw); height: min(62px, 15vw);
+    color: #d8e7ff; border-color: rgba(130,180,255,0.6);
   }
+  #btn_attack {
+    right: 20px; bottom: calc(62vh + 12px);
+    width: min(62px, 15vw); height: min(62px, 15vw);
+    color: #ffd9d0; border-color: rgba(255,140,110,0.6);
+  }
+  /* On touch, move the minimap out of the stick zone so it doesn't
+     compete with touch input. */
+  body.touch #minimap {
+    top: 12px; right: 12px; bottom: auto;
+    width: 140px; height: 140px;
+  }
+  body.touch #stats { top: 162px; font-size: 10px; }
 </style>
 </head>
 <body>
@@ -297,8 +307,9 @@
 <canvas id="minimap" width="200" height="200"></canvas>
 <div id="nameplate"></div>
 <div id="crosshair"></div>
-<div id="stick"><div id="stick_base"></div><div id="stick_thumb"></div></div>
-<div id="touchpad"><button id="btn_jump">JUMP</button><button id="btn_attack">ATTACK</button></div>
+<div id="stick_left"  class="stick_zone"><div class="stick_base"></div><div class="stick_thumb"></div></div>
+<div id="stick_right" class="stick_zone"><div class="stick_base"></div><div class="stick_thumb"></div></div>
+<div id="touchpad"><button id="btn_jump">JUMP</button><button id="btn_attack">ATK</button></div>
 <div id="overlay" class="hidden">tap / click to play</div>
 <!-- Character SELECT screen: lists saved characters; first-run or after
      delete it guides the user to the CREATE screen. -->
@@ -1458,111 +1469,101 @@
     if (KEY[e.code] !== undefined) { wasm.on_key(KEY[e.code], 0); e.preventDefault(); }
   });
 
-  // Touch controls: left half = virtual stick (WASD), right half = drag to
-  // look. Tap on the right half also triggers attack (for players who
-  // don't notice the on-screen button). Jump + Attack have dedicated
-  // on-screen buttons anchored to the bottom-right (see #touchpad).
+  // Touch controls: two floating joysticks. Left zone (left half of screen)
+  // drives WASD movement. Right zone (right half) drives camera facing by
+  // feeding wasm.on_mouse_move each frame based on the thumb offset. Both
+  // sticks "float": the base + thumb spring to wherever the user first
+  // touches down in their zone, so the thumb never has to find a fixed
+  // circle. Jump + Attack sit above the zones with higher z-index so
+  // touches on those buttons never activate a stick.
   const isTouch = (matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
-  if (isTouch) {
-    document.getElementById('touchpad').classList.add('on');
-    document.getElementById('stick').classList.add('on');
-    document.body.classList.add('touch');
+  if (isTouch) document.body.classList.add('touch');
+
+  // Per-frame look input from the right stick. Values are normalized
+  // [-1, 1] and sampled in tick() (see LOOK_STICK_SENS below).
+  const lookStick = { rx: 0, ry: 0 };
+
+  // Factory: wire a zone element as a floating joystick. `onVec(nx, ny)`
+  // is called with normalized [-1, 1] offset on touchmove, and (0, 0)
+  // once on touchend / touchcancel.
+  function makeFloatingStick(zoneId, onVec) {
+    const zone = document.getElementById(zoneId);
+    if (!zone) return;
+    const base  = zone.querySelector('.stick_base');
+    const thumb = zone.querySelector('.stick_thumb');
+    let touchId = null, ox = 0, oy = 0, maxR = 64;
+    const recomputeR = () => {
+      // Match the thumb to ~half the base width so full deflection lands
+      // the thumb at the edge of the base ring.
+      maxR = Math.max(40, base.offsetWidth * 0.38);
+    };
+    const placeBase = (x, y) => {
+      base.style.left  = x + 'px'; base.style.top  = y + 'px';
+      thumb.style.left = x + 'px'; thumb.style.top = y + 'px';
+      thumb.style.transform = 'translate(-50%, -50%)';
+    };
+    const reset = () => {
+      touchId = null;
+      zone.classList.remove('active');
+      onVec(0, 0);
+    };
+    zone.addEventListener('touchstart', (e) => {
+      if (touchId !== null) return;
+      const t = e.changedTouches[0];
+      touchId = t.identifier;
+      const rect = zone.getBoundingClientRect();
+      ox = t.clientX - rect.left;
+      oy = t.clientY - rect.top;
+      zone.classList.add('active');
+      recomputeR();
+      placeBase(ox, oy);
+      onVec(0, 0);
+      e.preventDefault(); e.stopPropagation();
+    }, { passive: false });
+    zone.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== touchId) continue;
+        const rect = zone.getBoundingClientRect();
+        let dx = (t.clientX - rect.left) - ox;
+        let dy = (t.clientY - rect.top) - oy;
+        const mag = Math.hypot(dx, dy);
+        if (mag > maxR) { dx = dx / mag * maxR; dy = dy / mag * maxR; }
+        thumb.style.transform =
+          `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        onVec(dx / maxR, dy / maxR);
+      }
+      e.preventDefault(); e.stopPropagation();
+    }, { passive: false });
+    const end = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === touchId) { reset(); break; }
+      }
+      e.preventDefault(); e.stopPropagation();
+    };
+    zone.addEventListener('touchend',    end, { passive: false });
+    zone.addEventListener('touchcancel', end, { passive: false });
   }
 
-  // ---- Virtual joystick (left-bottom) ----
-  const stickEl = document.getElementById('stick');
-  const stickThumb = document.getElementById('stick_thumb');
-  let stickTouchId = null;
-  // Current WASD state driven by the stick, to avoid redundant wasm.on_key calls.
+  // Left stick → WASD. Track previous state so we don't spam wasm.on_key.
   const stickKeys = [0, 0, 0, 0];
-  function setStickKey(code, v) {
+  const setStickKey = (code, v) => {
     if (stickKeys[code] === v) return;
     stickKeys[code] = v;
     wasm.on_key(code, v);
-  }
-  function updateStickFromTouch(x, y) {
-    const rect = stickEl.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const maxR = rect.width / 2 - 10;
-    let dx = x - cx, dy = y - cy;
-    const mag = Math.hypot(dx, dy);
-    if (mag > maxR) { dx = dx / mag * maxR; dy = dy / mag * maxR; }
-    stickThumb.style.transform = `translate(${dx}px, ${dy}px)`;
-    const nx = dx / maxR, ny = dy / maxR;
-    const TH = 0.3;
-    setStickKey(0, ny < -TH ? 1 : 0);  // W (forward)
-    setStickKey(2, ny >  TH ? 1 : 0);  // S (back)
-    setStickKey(1, nx < -TH ? 1 : 0);  // A (strafe left)
-    setStickKey(3, nx >  TH ? 1 : 0);  // D (strafe right)
-  }
-  function releaseStick() {
-    stickTouchId = null;
-    stickEl.classList.remove('active');
-    stickThumb.style.transform = 'translate(0, 0)';
-    for (let i = 0; i < 4; i++) setStickKey(i, 0);
-  }
-  stickEl.addEventListener('touchstart', (e) => {
-    if (stickTouchId !== null) return;
-    const t = e.changedTouches[0];
-    stickTouchId = t.identifier;
-    stickEl.classList.add('active');
-    updateStickFromTouch(t.clientX, t.clientY);
-    e.preventDefault(); e.stopPropagation();
-  }, { passive: false });
-  stickEl.addEventListener('touchmove', (e) => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickTouchId) {
-        updateStickFromTouch(t.clientX, t.clientY);
-        break;
-      }
-    }
-    e.preventDefault(); e.stopPropagation();
-  }, { passive: false });
-  const stickEnd = (e) => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickTouchId) { releaseStick(); break; }
-    }
-    e.preventDefault(); e.stopPropagation();
   };
-  stickEl.addEventListener('touchend', stickEnd, { passive: false });
-  stickEl.addEventListener('touchcancel', stickEnd, { passive: false });
-
-  // ---- Canvas touch: drag-to-look + tap-to-attack. Any touch that starts on
-  //      a button (#touchpad / #stick) never reaches here because those
-  //      elements stopPropagation.
-  const lookTouches = new Map();  // identifier → { x, y, startT, moved }
-  canvas.addEventListener('touchstart', (e) => {
-    for (const t of e.changedTouches) {
-      lookTouches.set(t.identifier, {
-        x: t.clientX, y: t.clientY, startT: performance.now(), moved: false,
-      });
-    }
-    e.preventDefault();
-  }, { passive: false });
-  canvas.addEventListener('touchmove', (e) => {
-    for (const t of e.changedTouches) {
-      const rec = lookTouches.get(t.identifier);
-      if (!rec) continue;
-      const dx = t.clientX - rec.x;
-      const dy = t.clientY - rec.y;
-      wasm.on_mouse_move(dx * 1.2, dy * 1.2);
-      rec.x = t.clientX; rec.y = t.clientY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) rec.moved = true;
-    }
-    e.preventDefault();
-  }, { passive: false });
-  canvas.addEventListener('touchend', (e) => {
-    for (const t of e.changedTouches) {
-      const rec = lookTouches.get(t.identifier);
-      if (!rec) continue;
-      const dur = performance.now() - rec.startT;
-      if (!rec.moved && dur < 250) triggerAttack();
-      lookTouches.delete(t.identifier);
-    }
+  makeFloatingStick('stick_left', (nx, ny) => {
+    const TH = 0.3;
+    setStickKey(0, ny < -TH ? 1 : 0);  // W forward
+    setStickKey(2, ny >  TH ? 1 : 0);  // S back
+    setStickKey(1, nx < -TH ? 1 : 0);  // A strafe left
+    setStickKey(3, nx >  TH ? 1 : 0);  // D strafe right
   });
-  canvas.addEventListener('touchcancel', (e) => {
-    for (const t of e.changedTouches) lookTouches.delete(t.identifier);
+
+  // Right stick → camera. Store the offset; tick() samples it every frame
+  // so the camera keeps rotating as long as the thumb is held off-center.
+  makeFloatingStick('stick_right', (nx, ny) => {
+    lookStick.rx = nx;
+    lookStick.ry = ny;
   });
 
   // ---- Mobile action buttons ----
@@ -1647,7 +1648,9 @@
 
   const mmCanvas = document.getElementById('minimap');
   const mmCtx = mmCanvas.getContext('2d');
-  const MM_SIZE = 160, MM_RANGE = 50;
+  // Draw edge-to-edge of the canvas so the rendered minimap actually fills
+  // its container (the previous 160 left a 40px dead band on right + bottom).
+  const MM_SIZE = mmCanvas.width, MM_RANGE = 50;
   const MM_SCALE = MM_SIZE / (MM_RANGE * 2);
   function drawMinimap() {
     const ctx = mmCtx;
@@ -1937,6 +1940,15 @@
     if (fpsAccum >= 0.33) { fps = Math.round(fpsFrames / fpsAccum); fpsAccum = 0; fpsFrames = 0; }
 
     pollGamepad();
+
+    // Sample the right-thumb look stick each frame so the camera keeps
+    // rotating as long as the thumb is held off-center. Mirrors the
+    // gamepad right-stick path above — MOUSE_SENS in wasm scales this
+    // into radians/frame.
+    if (lookStick.rx || lookStick.ry) {
+      const LOOK_STICK_SENS = 18;
+      wasm.on_mouse_move(lookStick.rx * LOOK_STICK_SENS, lookStick.ry * LOOK_STICK_SENS);
+    }
 
     // Drive the local character's skinning animation. The skinner now does
     // per-frame crossfade smoothing internally — we just tell it what the
