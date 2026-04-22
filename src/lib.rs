@@ -1746,6 +1746,14 @@ struct State {
     // see each other facing the way they're actually running, not the way
     // their camera is pointing.
     body_yaw: f32,
+
+    // Temporary camera yaw offset driven by the mobile right stick. Added on
+    // top of s.yaw only when computing the render camera — movement and body
+    // yaw still use s.yaw so panning never steers the character. When
+    // cam_pan_active goes false, the offset eases back to 0 so the camera
+    // snaps behind the player on release.
+    cam_pan_yaw: f32,
+    cam_pan_active: bool,
 }
 
 static mut S: Option<State> = None;
@@ -1789,6 +1797,8 @@ pub extern "C" fn init(w: u32, h: u32) {
             rain_spawn_acc: 0.0,
             class_: 0,
             body_yaw: PI,
+            cam_pan_yaw: 0.0,
+            cam_pan_active: false,
         });
 
         build_scene();
@@ -1903,6 +1913,28 @@ pub extern "C" fn on_mouse_move(dx: f32, dy: f32) {
     }
 }
 
+// Right-thumb pan: accumulates into a temporary offset that only moves the
+// render camera. Character yaw/movement are unaffected so panning is a pure
+// look-around gesture.
+#[no_mangle]
+pub extern "C" fn pan_cam(dx: f32) {
+    if let Some(s) = unsafe { S.as_mut() } {
+        s.cam_pan_active = true;
+        s.cam_pan_yaw -= dx * MOUSE_SENS;
+        while s.cam_pan_yaw >  PI { s.cam_pan_yaw -= 2.0 * PI; }
+        while s.cam_pan_yaw < -PI { s.cam_pan_yaw += 2.0 * PI; }
+    }
+}
+
+// Called when the pan stick is released. The offset then eases back to 0 each
+// frame so the camera snaps back behind the character.
+#[no_mangle]
+pub extern "C" fn pan_cam_release() {
+    if let Some(s) = unsafe { S.as_mut() } {
+        s.cam_pan_active = false;
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn frame(dt: f32) {
     unsafe {
@@ -1918,6 +1950,14 @@ pub extern "C" fn frame(dt: f32) {
         // Smooth FOV zoom.
         let target_fov = if s.zoom_hold { 0.55 } else { 1.2 };
         s.fov += (target_fov - s.fov) * (10.0 * dt).min(1.0);
+
+        // Camera pan snap-back: while the right stick isn't driving it, ease
+        // the offset toward 0 so the camera returns to behind the character.
+        if !s.cam_pan_active {
+            let k = (1.0 - (-dt * 8.0).exp()).min(1.0);
+            s.cam_pan_yaw *= 1.0 - k;
+            if s.cam_pan_yaw.abs() < 0.0005 { s.cam_pan_yaw = 0.0; }
+        }
 
         // --- movement ---
         let fwd_planar = V3::new(-s.yaw.sin(), 0.0, -s.yaw.cos());
@@ -2007,7 +2047,10 @@ pub extern "C" fn frame(dt: f32) {
         if moving { s.step_phase += speed * dt * 1.6; }
 
         // --- camera ---
-        let cy = s.yaw.cos(); let sy = s.yaw.sin();
+        // cam_yaw = character yaw + temporary pan offset. Movement still uses
+        // s.yaw directly so the pan never steers the player.
+        let cam_yaw = s.yaw + s.cam_pan_yaw;
+        let cy = cam_yaw.cos(); let sy = cam_yaw.sin();
         let cp = s.pitch.cos(); let sp = s.pitch.sin();
         let look = V3::new(-sy * cp, sp, -cy * cp);
         let player_eye = V3::new(s.cam_x, s.cam_y, s.cam_z);
@@ -2106,35 +2149,14 @@ struct Lighting {
     fog: V3,
 }
 
-fn compute_lighting(t: f32) -> Lighting {
-    let day_t = t * 0.05;
-    let sun_dir = V3::new(
-        (day_t * 0.4).sin() * 0.45,
-        day_t.sin(),
-        day_t.cos(),
-    ).norm();
-
-    let h = sun_dir.y;
-    let day = smoothstep01(-0.05, 0.25, h);
-    let dusk = smoothstep01(0.05, 0.35, 0.4 - h.abs());
-
-    let sun_noon   = V3::new(1.25, 1.10, 0.85);
-    let sun_dawn   = V3::new(1.45, 0.60, 0.30);
-    let sun_night  = V3::new(0.18, 0.22, 0.35);
-    let sun_color = lerp(sun_night, lerp(sun_dawn, sun_noon, day), day.max(dusk));
-
-    let sky_top_day   = V3::new(0.30, 0.55, 0.90);
-    let sky_top_night = V3::new(0.02, 0.04, 0.09);
-    let sky_top = lerp(sky_top_night, sky_top_day, day);
-
-    let sky_bot_day   = V3::new(0.85, 0.88, 0.80);
-    let sky_bot_dawn  = V3::new(0.95, 0.55, 0.35);
-    let sky_bot_night = V3::new(0.08, 0.10, 0.18);
-    let sky_bot_base  = lerp(sky_bot_night, sky_bot_day, day);
-    let sky_bot = lerp(sky_bot_base, sky_bot_dawn, dusk * 0.85);
-
-    let fog = lerp(sky_bot, V3::new(0.70, 0.80, 0.92), 0.35);
-
+fn compute_lighting(_t: f32) -> Lighting {
+    // Static midday sun — no day/night cycle. We still return the full
+    // struct so the render path stays unchanged.
+    let sun_dir = V3::new(0.35, 0.85, 0.40).norm();
+    let sun_color = V3::new(1.25, 1.10, 0.85);
+    let sky_top = V3::new(0.30, 0.55, 0.90);
+    let sky_bot = V3::new(0.85, 0.88, 0.80);
+    let fog = V3::new(0.78, 0.84, 0.88);
     Lighting { sun_dir, sun_color, sky_top, sky_bot, fog }
 }
 
@@ -2149,10 +2171,11 @@ unsafe fn render_scene(s: &State, vp: &M4, lit: &Lighting, eye: V3) {
     gl_uniform3f(sh.u_fog_color, lit.fog.x, lit.fog.y, lit.fog.z);
     gl_uniform3f(sh.u_camera_pos, eye.x, eye.y, eye.z);
     gl_uniform1f(sh.u_time, s.t);
-    let night = 1.0 - smoothstep01(-0.05, 0.25, lit.sun_dir.y);
-    gl_uniform1f(sh.u_night, night);
-    gl_uniform1f(sh.u_flash, s.flash);
-    gl_uniform1f(sh.u_rain, s.rain);
+    // Weather + day/night cycle were stripped — feed zeros so any shader
+    // branches that still reference these uniforms stay neutral.
+    gl_uniform1f(sh.u_night, 0.0);
+    gl_uniform1f(sh.u_flash, 0.0);
+    gl_uniform1f(sh.u_rain, 0.0);
     // Sampler2D u_tex stays bound to texture unit 0.
     gl_uniform1i(sh.u_tex, 0);
     gl_active_texture(GL_TEXTURE0);
@@ -2200,8 +2223,8 @@ unsafe fn render_sky(s: &State, sky_vp: &M4, lit: &Lighting) {
     gl_uniform3f(sh.u_sky_bot, lit.sky_bot.x, lit.sky_bot.y, lit.sky_bot.z);
     gl_uniform3f(sh.u_sun_color, lit.sun_color.x, lit.sun_color.y, lit.sun_color.z);
     gl_uniform1f(sh.u_time, s.t);
-    gl_uniform1f(sh.u_rain, s.rain);
-    gl_uniform1f(sh.u_flash, s.flash);
+    gl_uniform1f(sh.u_rain, 0.0);
+    gl_uniform1f(sh.u_flash, 0.0);
     gl_bind_vertex_array(s.sky_mesh.vao);
     gl_draw_elements(GL_TRIANGLES, s.sky_mesh.index_count, s.sky_mesh.index_ty, 0);
     gl_enable(GL_CULL_FACE);

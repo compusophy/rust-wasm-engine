@@ -277,10 +277,19 @@
     background: rgba(240, 214, 130, 0.45);
     transform: scale(0.94);
   }
+  /* Jump sits in the horizontal center above the sticks so either thumb
+     can reach it without stretching across the screen. Attack stays
+     anchored above the right stick since it's the dominant-hand action. */
   #btn_jump {
-    left:  18px; bottom: calc(min(150px, 36vw) + 32px);
-    width: min(64px, 16vw); height: min(64px, 16vw);
+    left: 50%; bottom: 28px;
+    transform: translateX(-50%);
+    width: min(62px, 15vw); height: min(62px, 15vw);
     color: #d8e7ff; border-color: rgba(130,180,255,0.6);
+  }
+  /* Double-ID selector beats the generic `#touchpad button:active` rule
+     above so the active-state scale doesn't drop our translateX centering. */
+  #touchpad #btn_jump:active {
+    transform: translateX(-50%) scale(0.94);
   }
   #btn_attack {
     right: 18px; bottom: calc(min(150px, 36vw) + 32px);
@@ -1473,15 +1482,21 @@
   const isTouch = (matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
   if (isTouch) document.body.classList.add('touch');
 
-  // Per-frame yaw input from the right stick. Sampled each frame in tick()
-  // so holding the thumb at an angle produces continuous rotation.
+  // Per-frame analog input from the two sticks. Sampled each frame in
+  // tick() so holding a thumb off-center produces continuous rotation.
+  // turnStick.nx = left-stick horizontal (rotates the character/camera so
+  // sideways input auto-follows by turning the whole view, not strafing).
+  // lookStick.rx = right-stick horizontal (feeds pan_cam for a temporary
+  // camera offset that snaps back when the thumb is lifted).
+  const turnStick = { nx: 0 };
   const lookStick = { rx: 0 };
 
   // Factory: wire a fixed-center joystick. The stick's visual center is the
   // center of the zone element; the thumb translates around that center.
   // `onVec(nx, ny)` gets normalized [-1, 1] offsets on every move and
-  // (0, 0) once on release.
-  function makeFixedStick(zoneId, onVec) {
+  // (0, 0) once on release. `onRelease` (optional) fires once on touchend
+  // so stick consumers can distinguish "held at center" from "let go".
+  function makeFixedStick(zoneId, onVec, onRelease) {
     const zone = document.getElementById(zoneId);
     if (!zone) return;
     const thumb = zone.querySelector('.stick_thumb');
@@ -1505,6 +1520,7 @@
       zone.classList.remove('active');
       thumb.style.transform = 'translate(0, 0)';
       onVec(0, 0);
+      if (onRelease) onRelease();
     };
     zone.addEventListener('touchstart', (e) => {
       if (touchId !== null) return;
@@ -1532,7 +1548,11 @@
     zone.addEventListener('touchcancel', end, { passive: false });
   }
 
-  // Left stick → WASD. Track previous state so we don't spam wasm.on_key.
+  // Left stick:
+  //   vertical (ny) → W/S forward/back
+  //   horizontal (nx) → analog turn: feeds on_mouse_move each frame so
+  //     the camera + character auto-follow when the thumb pushes sideways.
+  //     No more strafe input — sideways on the stick rotates you instead.
   const stickKeys = [0, 0, 0, 0];
   const setStickKey = (code, v) => {
     if (stickKeys[code] === v) return;
@@ -1543,15 +1563,19 @@
     const TH = 0.3;
     setStickKey(0, ny < -TH ? 1 : 0);  // W forward
     setStickKey(2, ny >  TH ? 1 : 0);  // S back
-    setStickKey(1, nx < -TH ? 1 : 0);  // A strafe left
-    setStickKey(3, nx >  TH ? 1 : 0);  // D strafe right
+    turnStick.nx = nx;
   });
 
-  // Right stick → yaw only. Discard ny so the pitch stays fixed at the
-  // initial isometric tilt — no more accidental pitch drift while panning.
-  makeFixedStick('stick_right', (nx, _ny) => {
-    lookStick.rx = nx;
-  });
+  // Right stick → temporary camera pan (yaw only). Each frame the offset
+  // accumulates in Rust; on release, pan_cam_release() lets it ease back
+  // to 0 so the camera snaps behind the character.
+  makeFixedStick('stick_right',
+    (nx, _ny) => { lookStick.rx = nx; },
+    () => {
+      lookStick.rx = 0;
+      if (wasm.pan_cam_release) wasm.pan_cam_release();
+    }
+  );
 
   // ---- Mobile action buttons ----
   function wireTouchButton(id, onDown, onUp) {
@@ -1928,12 +1952,18 @@
 
     pollGamepad();
 
-    // Sample the right-thumb yaw stick each frame so holding the thumb
-    // off-center produces continuous rotation. Pitch (dy) is locked at 0
-    // so the camera's isometric tilt never drifts from touch input.
-    if (lookStick.rx) {
-      const LOOK_STICK_SENS = 18;
-      wasm.on_mouse_move(lookStick.rx * LOOK_STICK_SENS, 0);
+    // Sample the mobile stick analog values each frame:
+    //   Left-horizontal → on_mouse_move yaw  (turn character/camera)
+    //   Right-horizontal → pan_cam (temporary offset that snaps back)
+    // Pitch stays locked so the WoW-style tilt never drifts.
+    const STICK_DEAD = 0.1;
+    if (Math.abs(turnStick.nx) > STICK_DEAD) {
+      const TURN_SENS = 18;
+      wasm.on_mouse_move(turnStick.nx * TURN_SENS, 0);
+    }
+    if (Math.abs(lookStick.rx) > STICK_DEAD && wasm.pan_cam) {
+      const PAN_SENS = 20;
+      wasm.pan_cam(lookStick.rx * PAN_SENS);
     }
 
     // Drive the local character's skinning animation. The skinner now does
@@ -2013,10 +2043,6 @@
 
     if (++hudTick % 5 === 0) {
       const v = new Float32Array(memory.buffer, statsPtr, 12);
-      const dayT = v[4];
-      const hr = ((dayT / (Math.PI * 2)) * 24 + 6) % 24;
-      const hh = Math.floor(hr);
-      const mm = Math.floor((hr - hh) * 60);
       const mode = v[7] > 0.5 ? 'FREE' : (v[5] > 0.5 ? 'TPS' : 'FPS');
       statsEl.innerText =
         `${fps} fps  ${mode}
