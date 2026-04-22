@@ -1148,7 +1148,82 @@ unsafe fn render_particles(s: &State) {
 
 static mut RNG: u32 = 0x9E37_79B9;
 
-// HUD stats read by JS each frame: [x, y, z, yaw, day_t, tps, palette, freecam, rain, flash, shape, storm_force]
+// Preview mode: when non-zero, `frame()` renders just the player avatar on a
+// dark background with a fixed orbit camera (used by the character-creation
+// screen) instead of the live world. Movement input is ignored too so WASD in
+// the UI doesn't drag the world player around.
+static mut PREVIEW_ACTIVE: bool = false;
+
+#[no_mangle]
+pub extern "C" fn preview_mode(on: u32) {
+    unsafe { PREVIEW_ACTIVE = on != 0; }
+}
+
+unsafe fn render_preview(s: &State, _dt: f32) {
+    // Place the rigged avatar at the origin. Camera slowly orbits around it
+    // (auto-rotate) so the creation screen has some motion.
+    let feet_y = 0.0f32;
+    let t = s.t;
+    let spin = t * 0.35;
+    ENTITIES[s.player_body_idx].pos = V3::new(0.0, feet_y, 0.0);
+    ENTITIES[s.player_body_idx].yaw = PI;  // face camera
+    ENTITIES[s.player_body_idx].hidden = false;
+
+    let body_mid_y = 0.95;
+    let dist = 3.4;
+    let cam = V3::new(spin.sin() * dist, body_mid_y + 0.25, spin.cos() * dist);
+    let target = V3::new(0.0, body_mid_y, 0.0);
+
+    let aspect = s.canvas_w as f32 / s.canvas_h as f32;
+    let proj = M4::perspective(1.0, aspect, 0.1, 50.0);
+    let view = M4::look_at(cam, target, V3::Y);
+    let vp = proj.mul(&view);
+
+    gl_clear_color(0.05, 0.06, 0.09, 1.0);
+    gl_viewport(0, 0, s.canvas_w as i32, s.canvas_h as i32);
+    gl_clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    let sh = &s.scene_shader;
+    gl_use_program(sh.program);
+    gl_uniform_matrix4fv(sh.u_vp, vp.0.as_ptr());
+    let sun_dir = V3::new(0.35, 0.85, 0.40).norm();
+    let sun_color = V3::new(1.35, 1.20, 1.00);
+    let sky_top = V3::new(0.78, 0.82, 0.92);
+    let sky_bot = V3::new(0.62, 0.58, 0.52);
+    gl_uniform3f(sh.u_sun_dir, sun_dir.x, sun_dir.y, sun_dir.z);
+    gl_uniform3f(sh.u_sun_color, sun_color.x, sun_color.y, sun_color.z);
+    gl_uniform3f(sh.u_sky_top, sky_top.x, sky_top.y, sky_top.z);
+    gl_uniform3f(sh.u_sky_bot, sky_bot.x, sky_bot.y, sky_bot.z);
+    gl_uniform3f(sh.u_fog_color, 0.20, 0.22, 0.28);
+    gl_uniform3f(sh.u_camera_pos, cam.x, cam.y, cam.z);
+    gl_uniform1f(sh.u_time, s.t);
+    gl_uniform1f(sh.u_night, 0.0);
+    gl_uniform1f(sh.u_flash, 0.0);
+    gl_uniform1f(sh.u_rain, 0.0);
+    gl_uniform1i(sh.u_tex, 0);
+    gl_active_texture(GL_TEXTURE0);
+
+    let e = &ENTITIES[s.player_body_idx];
+    if !e.hidden {
+        let m = MESHES[e.mesh as usize];
+        let model = M4::trs(e.pos, e.yaw, e.scale);
+        gl_uniform_matrix4fv(sh.u_model, model.0.as_ptr());
+        gl_uniform3f(sh.u_tint, e.tint.x, e.tint.y, e.tint.z);
+        gl_uniform1f(sh.u_sway, 0.0);
+        gl_uniform1f(sh.u_spec, 0.15);
+        if m.texture != 0 {
+            gl_bind_texture(GL_TEXTURE_2D, m.texture);
+            gl_uniform1i(sh.u_has_tex, 1);
+        } else {
+            gl_uniform1i(sh.u_has_tex, 0);
+        }
+        gl_bind_vertex_array(m.vao);
+        gl_draw_elements(GL_TRIANGLES, m.index_count, m.index_ty, 0);
+    }
+    NAMEPLATE[2] = 0.0;  // hide nameplate during preview
+}
+
+// HUD stats read by JS each frame: [x, y, z, yaw, day_t, tps, body_yaw, freecam, rain, flash, grounded, storm_force]
 static mut STATS: [f32; 12] = [0.0; 12];
 
 // Character nameplate in screen space: [ndc_x, ndc_y, visible_flag].
@@ -1759,11 +1834,6 @@ pub extern "C" fn on_key(code: u32, down: u32) {
                 27 => if v {
                     s.cam_x = 0.0; s.cam_y = EYE_H; s.cam_z = 8.0;
                     s.vy = 0.0; s.yaw = 0.0; s.pitch = 0.0;
-                    audio_beep(360.0, 0.15, 0.15);
-                },
-                29 => if v {
-                    s.storm_force = !s.storm_force;
-                    audio_beep(if s.storm_force { 140.0 } else { 640.0 }, 0.22, 0.18);
                 },
                 _ => {}
             }
@@ -1830,6 +1900,12 @@ pub extern "C" fn frame(dt: f32) {
         let s = match S.as_mut() { Some(s) => s, None => return };
         s.t += dt * s.time_scale;
 
+        if PREVIEW_ACTIVE {
+            let s_ref = S.as_ref().unwrap();
+            render_preview(s_ref, dt);
+            return;
+        }
+
         // Smooth FOV zoom.
         let target_fov = if s.zoom_hold { 0.55 } else { 1.2 };
         s.fov += (target_fov - s.fov) * (10.0 * dt).min(1.0);
@@ -1860,8 +1936,8 @@ pub extern "C" fn frame(dt: f32) {
             STATS[0] = s.cam_x; STATS[1] = s.cam_y; STATS[2] = s.cam_z;
             STATS[3] = s.yaw; STATS[4] = s.t * 0.05; STATS[5] = if s.tps { 1.0 } else { 0.0 };
             STATS[6] = s.body_yaw; STATS[7] = 1.0;
-            STATS[8] = s.rain; STATS[9] = s.flash;
-            STATS[10] = 0.0; STATS[11] = if s.storm_force { 1.0 } else { 0.0 };
+            STATS[8] = 0.0; STATS[9] = 0.0;
+            STATS[10] = 0.0; STATS[11] = 0.0;
 
             let player_eye = V3::new(s.cam_x, s.cam_y, s.cam_z);
             let up = V3::Y;
@@ -1875,21 +1951,11 @@ pub extern "C" fn frame(dt: f32) {
             view_nt.0[12] = 0.0; view_nt.0[13] = 0.0; view_nt.0[14] = 0.0;
             let sky_vp = proj.mul(&view_nt);
 
-            update_npcs(dt);
-            update_particles(dt);
-            update_projectiles(dt);
-            update_quests(s.t);
-            update_weather(dt);
-            let s_rain = S.as_ref().map(|ss| ss.rain).unwrap_or(0.0);
-            update_birds(dt, s_rain);
-
             let lit = compute_lighting(s.t);
             gl_viewport(0, 0, s.canvas_w as i32, s.canvas_h as i32);
             gl_clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             let s_ref = S.as_ref().unwrap();
             render_scene(s_ref, &vp, &lit, eye);
-            render_rain(s_ref);
-            render_particles(s_ref);
             render_sky(s_ref, &sky_vp, &lit);
             return;
         }
@@ -1915,11 +1981,9 @@ pub extern "C" fn frame(dt: f32) {
 
         if s.space && grounded {
             s.vy = JUMP_V;
-            audio_beep(660.0, 0.12, 0.15);
         }
         s.vy -= GRAVITY * dt;
 
-        let vy_pre = s.vy;
         let delta = V3::new(mv.x * speed * dt, s.vy * dt, mv.z * speed * dt);
         let (new_center, hits) = move_collide(center, delta, ext);
         s.cam_x = new_center.x;
@@ -1928,29 +1992,10 @@ pub extern "C" fn frame(dt: f32) {
         if hits.y_dn && s.vy < 0.0 { s.vy = 0.0; }
         if hits.y_up && s.vy > 0.0 { s.vy = 0.0; }
 
-        // Landing shake + thud.
-        if hits.y_dn && vy_pre < -4.0 {
-            s.shake += ((-vy_pre) - 4.0) * 0.018;
-            audio_beep(110.0, 0.18, 0.22);
-            let feet = V3::new(s.cam_x, s.cam_y - EYE_H, s.cam_z);
-            let intensity = ((-vy_pre) - 3.0).min(8.0).max(1.0);
-            spawn_burst(feet, 10 + intensity as u32,
-                2.0, 2.2 + intensity * 0.3,
-                V3::new(0.78, 0.68, 0.50), 0.55, 0.14, 1.0);
-        }
-        s.shake *= (1.0 - 5.0 * dt).max(0.0);
-
-        // Step phase + footstep sound.
+        // Head-bob phase still drives FPS camera sway, but no landing shake,
+        // no footstep audio, no landing particles. User wants clean movement.
         let moving = (mv.x * mv.x + mv.z * mv.z) > 0.01 && grounded;
-        if moving {
-            s.step_phase += speed * dt * 1.6;
-            s.step_sound_acc += dt * speed * 0.35;
-            if s.step_sound_acc >= 1.0 {
-                s.step_sound_acc -= 1.0;
-                let pitch = 180.0 + (rand01() * 40.0);
-                audio_beep(pitch, 0.08, 0.06);
-            }
-        }
+        if moving { s.step_phase += speed * dt * 1.6; }
 
         // --- camera ---
         let cy = s.yaw.cos(); let sy = s.yaw.sin();
@@ -1997,8 +2042,7 @@ pub extern "C" fn frame(dt: f32) {
             let bob_y = if moving { s.step_phase.sin() * 0.06 } else { 0.0 };
             let bob_x = if moving { (s.step_phase * 0.5).sin() * 0.04 } else { 0.0 };
             let right = V3::new(-fwd.z, 0.0, fwd.x);
-            let shake = s.shake * ((s.t * 53.0).sin());
-            let adj = V3::new(right.x * bob_x, bob_y + shake, right.z * bob_x);
+            let adj = V3::new(right.x * bob_x, bob_y, right.z * bob_x);
             let e = player_eye.add(adj);
             (e, e.add(look))
         };
@@ -2026,27 +2070,17 @@ pub extern "C" fn frame(dt: f32) {
         gl_viewport(0, 0, s.canvas_w as i32, s.canvas_h as i32);
         gl_clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        update_npcs(dt);
-        update_particles(dt);
-        update_projectiles(dt);
-        update_quests(s.t);
-        update_weather(dt);
-        let s_rain = S.as_ref().map(|ss| ss.rain).unwrap_or(0.0);
-        update_birds(dt, s_rain);
-
         STATS[0] = s.cam_x; STATS[1] = s.cam_y; STATS[2] = s.cam_z;
         STATS[3] = s.yaw; STATS[4] = s.t * 0.05; STATS[5] = if s.tps { 1.0 } else { 0.0 };
         STATS[6] = s.body_yaw;
         STATS[7] = if s.freecam { 1.0 } else { 0.0 };
-        STATS[8] = s.rain; STATS[9] = s.flash;
+        STATS[8] = 0.0; STATS[9] = 0.0;
         STATS[10] = if grounded { 1.0 } else { 0.0 };
-        STATS[11] = if s.storm_force { 1.0 } else { 0.0 };
+        STATS[11] = 0.0;
 
         let lit = compute_lighting(s.t);
         let s_ref = S.as_ref().unwrap();
         render_scene(s_ref, &vp, &lit, eye);
-        render_rain(s_ref);
-        render_particles(s_ref);
         render_sky(s_ref, &sky_vp, &lit);
     }
 }

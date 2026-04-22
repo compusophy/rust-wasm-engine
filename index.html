@@ -5,17 +5,15 @@
 <title>walk</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
-  canvas { display: block; width: 100%; height: 100%; }
-  #hud {
-    position: fixed; top: 10px; left: 12px; color: #fff;
-    font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-    pointer-events: none; opacity: 0.9;
-  }
+  canvas#c { display: block; width: 100%; height: 100%; }
+  /* In-world FPS / coords readout. Kept tiny since it's just a debug line.
+     Background chip gives it contrast against bright sky. */
   #stats {
-    position: fixed; top: 10px; right: 12px; color: #fff;
-    font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace;
-    text-align: right; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-    pointer-events: none; opacity: 0.85; line-height: 1.45;
+    position: fixed; top: 10px; right: 12px; color: #eae7db;
+    font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    text-align: right; line-height: 1.5;
+    pointer-events: none; padding: 4px 8px;
+    background: rgba(0,0,0,0.4); border-radius: 4px;
   }
   #quests {
     position: fixed; left: 12px; top: 72px;
@@ -38,11 +36,14 @@
   #quests .q .sub { opacity: 0.75; font-style: italic; margin-top: 3px; }
   #quests .q .sub.ready { color: #9f9; font-style: normal; font-weight: 600; }
   #minimap {
-    position: fixed; bottom: 12px; right: 12px;
-    width: 160px; height: 160px; border-radius: 4px;
+    position: fixed; top: 12px; right: 12px;
+    width: 200px; height: 200px; border-radius: 6px;
     background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15);
     pointer-events: none;
+    box-shadow: 0 2px 18px rgba(0,0,0,0.35);
   }
+  /* Push the stats chip below the minimap when the two overlap. */
+  #stats { top: 222px; }
   #crosshair {
     position: fixed; left: 50%; top: 50%; width: 14px; height: 14px;
     margin-left: -7px; margin-top: -7px; pointer-events: none;
@@ -59,127 +60,109 @@
     cursor: pointer; user-select: none;
   }
   #overlay.hidden { display: none; }
-  /* Charcreate lives as a floating panel in the top-right while the world
-     runs live behind it — pick an existing character or roll a new one
-     without leaving the sandbox. */
-  #charcreate {
-    position: fixed; top: 12px; right: 12px;
-    color: #e5e0d0; font-family: system-ui, sans-serif; z-index: 20;
+  /* ---- Character screens (select + create) ----
+     Both are full-viewport overlays on top of the wasm canvas. The SELECT
+     screen dims the scene behind for focus; the CREATE screen leaves the
+     preview canvas showing through with a right-side panel for the form. */
+  .screen {
+    position: fixed; inset: 0;
+    color: #e5e0d0; font-family: system-ui, sans-serif; z-index: 30;
+    display: flex; align-items: center;
   }
-  #charcreate.hidden { display: none; }
-  #charcreate .card {
-    width: min(320px, 92vw); max-height: calc(100vh - 24px); overflow: auto;
-    padding: 16px 18px; background: rgba(14, 15, 22, 0.88);
-    border: 1px solid rgba(240, 214, 130, 0.25); border-radius: 8px;
-    box-shadow: 0 0 30px rgba(240, 214, 130, 0.08);
+  .screen.hidden { display: none; }
+  #charselect { justify-content: center; background: rgba(0,0,0,0.72); }
+  #charcreate { justify-content: flex-end; padding-right: 4vw;
+    background: linear-gradient(90deg,
+      rgba(5,6,10,0) 0%, rgba(5,6,10,0) 55%,
+      rgba(5,6,10,0.55) 72%, rgba(5,6,10,0.90) 88%);
+  }
+  .screen .panel {
+    width: min(420px, 92vw); max-height: 92vh; overflow: auto;
+    padding: 26px 30px;
+    background: rgba(14, 15, 22, 0.92);
+    border: 1px solid rgba(240, 214, 130, 0.28); border-radius: 10px;
+    box-shadow: 0 0 40px rgba(240, 214, 130, 0.10);
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   }
-  #charcreate h2 {
-    margin: 0 0 12px 0; font-size: 16px; letter-spacing: 5px;
+  .screen h2 {
+    margin: 0 0 20px 0; font-size: 22px; letter-spacing: 6px;
     color: #f0d682; text-align: center; font-weight: 500;
   }
-  #charcreate h3 {
-    margin: 16px 0 8px 0; font-size: 11px; letter-spacing: 3px;
-    color: #a09780; font-weight: 600; text-transform: uppercase;
+  .screen button.primary {
+    margin-top: 14px; width: 100%; padding: 14px;
+    background: linear-gradient(180deg, #f0d682 0%, #c9a550 100%);
+    border: none; border-radius: 5px; color: #1a140a;
+    font: 700 14px system-ui, sans-serif; letter-spacing: 4px;
+    cursor: pointer; transition: filter 0.1s;
   }
-  #charcreate .char_list {
-    list-style: none; padding: 0; margin: 0;
-    display: flex; flex-direction: column; gap: 4px;
+  .screen button.primary:hover { filter: brightness(1.08); }
+  .screen button.secondary {
+    margin-top: 8px; width: 100%; padding: 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 5px;
+    color: #a39a83;
+    font: 500 12px system-ui, sans-serif; letter-spacing: 2px;
+    cursor: pointer;
   }
-  #charcreate .char_row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px; background: rgba(0,0,0,0.30);
-    border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+  .screen button.secondary:hover { color: #f0d682; border-color: rgba(240, 214, 130, 0.4); }
+
+  /* Character list rows (SELECT screen) */
+  .char_list {
+    list-style: none; padding: 0; margin: 0 0 16px 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .char_list .char_row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 5px;
     cursor: pointer; transition: 0.1s;
   }
-  #charcreate .char_row:hover {
+  .char_list .char_row:hover {
     border-color: rgba(240, 214, 130, 0.55);
     background: rgba(240, 214, 130, 0.08);
   }
-  #charcreate .char_row.active {
-    border-color: #f0d682; color: #fff8d8;
-    background: rgba(240, 214, 130, 0.14);
+  .char_list .char_row .name { flex: 1; font-size: 15px; font-weight: 600; color: #f0ead4; }
+  .char_list .char_row .klass {
+    font-size: 11px; color: #9f957a; letter-spacing: 2px;
+    text-transform: uppercase;
   }
-  #charcreate .char_row .name { flex: 1; font-size: 13px; font-weight: 600; }
-  #charcreate .char_row .klass { font-size: 11px; color: #9f957a; letter-spacing: 1px; text-transform: uppercase; }
-  #charcreate .char_row .del {
+  .char_list .char_row .del {
     border: none; background: transparent; color: #a0695a;
-    cursor: pointer; padding: 2px 6px; font-size: 14px; line-height: 1;
+    cursor: pointer; padding: 4px 8px; font-size: 16px; line-height: 1;
   }
-  #charcreate .char_row .del:hover { color: #ff8570; }
-  #charcreate .empty {
-    padding: 10px; text-align: center; font-size: 12px;
+  .char_list .char_row .del:hover { color: #ff8570; }
+  .char_list .empty {
+    padding: 14px; text-align: center; font-size: 12px;
     color: #6c6652; font-style: italic;
   }
-  #charcreate .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  /* Form rows (CREATE screen) */
+  #charcreate .row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  #charcreate .row.col { align-items: flex-start; }
   #charcreate label {
-    width: 52px; font-size: 10px; letter-spacing: 2px;
+    width: 64px; font-size: 11px; letter-spacing: 2px;
     color: #a09780; text-transform: uppercase;
+    padding-top: 6px;
   }
   #charcreate input[type=text] {
-    flex: 1; padding: 6px 10px; background: rgba(0,0,0,0.4);
-    border: 1px solid rgba(240, 214, 130, 0.3); border-radius: 4px;
-    color: #f5efdb; font-family: inherit; font-size: 13px; outline: none;
+    flex: 1; padding: 9px 12px; background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(240, 214, 130, 0.3); border-radius: 5px;
+    color: #f5efdb; font-family: inherit; font-size: 14px; outline: none;
   }
   #charcreate input[type=text]:focus { border-color: #f0d682; }
   #charcreate .grid {
-    flex: 1; display: flex; flex-wrap: wrap; gap: 4px;
+    flex: 1; display: flex; flex-wrap: wrap; gap: 6px;
   }
   #charcreate button.pick {
-    flex: 1 0 calc(33.3% - 4px); min-width: 64px;
-    padding: 6px 8px; background: rgba(0,0,0,0.35);
-    border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
-    color: #cfc8ad; font-family: inherit; font-size: 11px; cursor: pointer;
+    flex: 1 0 calc(33.3% - 6px); min-width: 78px;
+    padding: 10px 10px; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
+    color: #cfc8ad; font: 600 12px system-ui, sans-serif; cursor: pointer;
     letter-spacing: 1px; transition: 0.1s;
   }
   #charcreate button.pick:hover { border-color: rgba(240, 214, 130, 0.5); color: #f0d682; }
   #charcreate button.pick.active {
     background: rgba(240, 214, 130, 0.15); border-color: #f0d682; color: #fff8d8;
   }
-  #charcreate #cc_enter {
-    margin-top: 10px; width: 100%; padding: 10px;
-    background: linear-gradient(180deg, #f0d682 0%, #c9a550 100%);
-    border: none; border-radius: 4px; color: #1a140a;
-    font-family: inherit; font-size: 13px; font-weight: 700;
-    letter-spacing: 3px; cursor: pointer;
-  }
-  #charcreate #cc_enter:hover { filter: brightness(1.08); }
-  /* Animation debug panel — buttons force-play a specific clip so we can
-     figure out which GLB index actually looks like what. */
-  #anim_debug {
-    position: fixed; left: 12px; bottom: 12px; z-index: 12;
-    display: flex; flex-direction: column; gap: 4px;
-    padding: 8px 10px;
-    background: rgba(14, 15, 22, 0.85); border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px; color: #cfc8ad; font: 11px ui-monospace, Consolas, monospace;
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-    max-width: 220px;
-  }
-  #anim_debug .hdr {
-    font-size: 10px; color: #8c8470; letter-spacing: 2px; text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  #anim_debug .btn {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 5px 8px; background: rgba(0,0,0,0.35);
-    border: 1px solid rgba(255,255,255,0.08); border-radius: 3px;
-    color: #cfc8ad; cursor: pointer; font: inherit;
-  }
-  #anim_debug .btn:hover { border-color: rgba(240, 214, 130, 0.5); color: #f0d682; }
-  #anim_debug .btn.active { background: rgba(240, 214, 130, 0.14); border-color: #f0d682; color: #fff8d8; }
-  #anim_debug .btn .idx { color: #6c6652; font-size: 10px; }
-  /* Reopen toggle when charcreate is dismissed. */
-  #cc_toggle {
-    position: fixed; top: 12px; right: 12px; z-index: 19;
-    display: none; padding: 6px 12px;
-    background: rgba(14, 15, 22, 0.82);
-    border: 1px solid rgba(240, 214, 130, 0.25); border-radius: 4px;
-    color: #cfc8ad; font: 600 11px system-ui, sans-serif;
-    letter-spacing: 2px; cursor: pointer;
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  }
-  #cc_toggle.on { display: block; }
-  #cc_toggle:hover { color: #f0d682; border-color: rgba(240, 214, 130, 0.55); }
   #nameplate {
     position: fixed; left: 0; top: 0; pointer-events: none;
     color: #fff; font: 600 13px system-ui, sans-serif;
@@ -203,92 +186,102 @@
   #help td { padding: 3px 14px 3px 0; vertical-align: top; }
   #help .key { color: #f8c96a; white-space: nowrap; }
   #help .hint { margin-top: 14px; opacity: 0.6; font-size: 12px; }
-  /* ---- Mobile controls ---- */
-  /* Virtual joystick: tracks the finger inside a fixed-position base circle.
-     The thumb visually translates to reflect stick deflection; the CSS is
-     purely presentational — all WASD mapping happens in JS. */
+  /* ---- Mobile controls ----
+     Joystick lives bottom-left; action buttons bottom-right. All targets are
+     sized for a thumb reach (~48-64 px minimum, bigger on mobile). Both
+     anchor to the viewport and don't get covered by the minimap (which
+     moved to top-right on touch). */
   #stick {
-    position: fixed; left: 28px; bottom: 28px;
-    width: 150px; height: 150px;
-    display: none; z-index: 6;
+    position: fixed; left: 24px; bottom: 24px;
+    width: 180px; height: 180px;
+    display: none; z-index: 8;
     touch-action: none; user-select: none;
     -webkit-user-select: none;
   }
   #stick.on { display: block; }
   #stick_base {
     position: absolute; inset: 0; border-radius: 50%;
-    background: rgba(0,0,0,0.32);
-    border: 2px solid rgba(255,255,255,0.22);
+    background: rgba(0,0,0,0.38);
+    border: 2px solid rgba(255,255,255,0.30);
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-    box-shadow: 0 2px 18px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 22px rgba(0,0,0,0.5);
   }
   #stick_thumb {
     position: absolute; left: 50%; top: 50%;
-    width: 62px; height: 62px; margin-left: -31px; margin-top: -31px;
+    width: 78px; height: 78px; margin-left: -39px; margin-top: -39px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.38);
-    border: 2px solid rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.42);
+    border: 2px solid rgba(255,255,255,0.62);
     transition: background 0.08s;
     pointer-events: none;
     will-change: transform;
   }
-  #stick.active #stick_thumb { background: rgba(240,214,130,0.48); border-color: #f0d682; }
+  #stick.active #stick_thumb { background: rgba(240,214,130,0.55); border-color: #f0d682; }
 
   #touchpad {
-    position: fixed; right: 24px; bottom: 28px;
-    display: none; pointer-events: none; z-index: 5;
+    position: fixed; right: 24px; bottom: 24px;
+    display: none; pointer-events: none; z-index: 7;
     touch-action: none; user-select: none; -webkit-user-select: none;
   }
   #touchpad.on { display: block; }
-  /* When the touchpad is on, move the minimap out of the bottom-right to
-     avoid a button-vs-minimap overlap. Top-right is a common MMO spot. */
-  body.touch #minimap { top: 12px; bottom: auto; width: 120px; height: 120px; }
+  /* When the touchpad is on, move the minimap OFF the bottom-right so it
+     doesn't sit under the attack button. */
+  body.touch #minimap { top: 12px; right: 12px; bottom: auto; width: 140px; height: 140px; }
+  body.touch #stats { top: 162px; font-size: 10px; }
   #touchpad button {
     position: absolute; pointer-events: auto;
-    border: 2px solid rgba(255,255,255,0.28);
-    background: rgba(0,0,0,0.38);
-    color: #fff; font: 700 18px system-ui, sans-serif; letter-spacing: 1px;
+    border: 2px solid rgba(255,255,255,0.32);
+    background: rgba(0,0,0,0.42);
+    color: #fff; font: 800 18px system-ui, sans-serif; letter-spacing: 1.5px;
     border-radius: 50%; padding: 0;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     touch-action: none;
     transition: transform 0.08s, background 0.1s;
-    box-shadow: 0 2px 18px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 22px rgba(0,0,0,0.5);
   }
   #touchpad button:active {
-    background: rgba(240, 214, 130, 0.40);
-    transform: scale(0.93);
+    background: rgba(240, 214, 130, 0.45);
+    transform: scale(0.94);
   }
-  /* Primary attack: big thumb-friendly target. Secondary jump offset up+left.*/
-  #btn_attack { right: 0; bottom: 0; width: 120px; height: 120px; font-size: 24px; color: #ffd9d0; border-color: rgba(255,140,110,0.55); }
-  #btn_jump   { right: 130px; bottom: 30px; width: 96px; height: 96px; font-size: 18px; color: #d8e7ff; border-color: rgba(130,180,255,0.55); }
+  /* Big primary action buttons — easy thumb targets. */
+  #btn_attack { right: 0; bottom: 0; width: 150px; height: 150px; font-size: 22px; color: #ffd9d0; border-color: rgba(255,140,110,0.65); }
+  #btn_jump   { right: 160px; bottom: 40px; width: 120px; height: 120px; font-size: 18px; color: #d8e7ff; border-color: rgba(130,180,255,0.65); }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud">WASD · shift sprint · space jump · L-click attack · F view · T fly · R-click zoom · Z storm · M music · Home reset</div>
 <div id="stats"></div>
-<div id="quests"></div>
-<canvas id="minimap" width="160" height="160"></canvas>
+<canvas id="minimap" width="200" height="200"></canvas>
 <div id="nameplate"></div>
 <div id="crosshair"></div>
 <div id="stick"><div id="stick_base"></div><div id="stick_thumb"></div></div>
 <div id="touchpad"><button id="btn_jump">JUMP</button><button id="btn_attack">ATTACK</button></div>
-<div id="anim_debug"><div class="hdr">clip debug — click to preview</div></div>
-<div id="overlay" class="hidden">tap / click to play<br><span style="opacity:.6;font-size:13px">press ? for help</span></div>
-<div id="charcreate"><div class="card">
-  <h2>CHARACTERS</h2>
-  <ul id="char_list" class="char_list"></ul>
-  <h3>New</h3>
-  <div class="row"><label>Name</label><input id="cc_name" type="text" value="" placeholder="name…" maxlength="20" autocomplete="off"></div>
-  <div class="row"><label>Class</label><div class="grid" id="cc_class">
-    <button class="pick active" data-v="0">Warrior</button>
-    <button class="pick" data-v="1">Hunter</button>
-    <button class="pick" data-v="2">Mage</button>
-  </div></div>
-  <button id="cc_enter">CREATE + PLAY</button>
-</div></div>
-<button id="cc_toggle">CHARACTERS</button>
+<div id="overlay" class="hidden">tap / click to play</div>
+<!-- Character SELECT screen: lists saved characters; first-run or after
+     delete it guides the user to the CREATE screen. -->
+<div id="charselect" class="screen hidden">
+  <div class="panel">
+    <h2>SELECT CHARACTER</h2>
+    <ul id="char_list" class="char_list"></ul>
+    <button id="btn_create_new" class="primary">+ CREATE NEW CHARACTER</button>
+  </div>
+</div>
+<!-- Character CREATE screen: shows the live model (walking loop on a dark
+     backdrop rendered by the wasm preview mode) with name + class form. -->
+<div id="charcreate" class="screen hidden">
+  <div class="panel right">
+    <h2>CREATE CHARACTER</h2>
+    <div class="row"><label>Name</label><input id="cc_name" type="text" value="" placeholder="name…" maxlength="20" autocomplete="off"></div>
+    <div class="row col"><label>Class</label><div class="grid" id="cc_class">
+      <button class="pick active" data-v="0">Warrior</button>
+      <button class="pick" data-v="1">Hunter</button>
+      <button class="pick" data-v="2">Mage</button>
+    </div></div>
+    <button id="cc_enter" class="primary">CREATE + PLAY</button>
+    <button id="cc_back" class="secondary">← Back</button>
+  </div>
+</div>
 <div id="help"><div class="card">
   <h3>controls</h3>
   <table>
@@ -1070,8 +1063,8 @@
   const cc = { id: null, name: 'Traveler', class_: 0 };
   let activeCharacterId = null;
 
-  const ccRoot = document.getElementById('charcreate');
-  const ccToggle = document.getElementById('cc_toggle');
+  const selectScreen = document.getElementById('charselect');
+  const createScreen = document.getElementById('charcreate');
   const ccOverlay = document.getElementById('overlay');
   const ccName = document.getElementById('cc_name');
   const ccClassRoot = document.getElementById('cc_class');
@@ -1086,26 +1079,41 @@
     });
   });
 
+  // Screen state machine.
+  //   'select' — character roster. Default when any chars exist.
+  //   'create' — form + preview. Default when roster is empty.
+  //   'game'   — both screens hidden, wasm renders world, no preview.
+  let currentScreen = null;
+  function setScreen(name) {
+    currentScreen = name;
+    selectScreen.classList.toggle('hidden', name !== 'select');
+    createScreen.classList.toggle('hidden', name !== 'create');
+    // Preview renders ONLY on the create screen.
+    wasm.preview_mode(name === 'create' ? 1 : 0);
+    if (name === 'select') renderCharacterList();
+    if (name === 'create') ccName.focus();
+  }
+
   function renderCharacterList() {
     const list = document.getElementById('char_list');
     list.innerHTML = '';
     if (characters.length === 0) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'no characters yet — create one below';
+      li.textContent = 'no characters yet — hit “create” below';
       list.appendChild(li);
       return;
     }
     for (const c of characters) {
       const li = document.createElement('li');
-      li.className = 'char_row' + (c.id === activeCharacterId ? ' active' : '');
+      li.className = 'char_row';
       li.innerHTML = `<span class="name"></span><span class="klass"></span><button class="del" title="delete">×</button>`;
       li.querySelector('.name').textContent = c.name;
       li.querySelector('.klass').textContent = CLASS_NAMES[c.class_] || '?';
       li.addEventListener('click', (e) => {
         if (e.target.closest('.del')) return;
         selectCharacter(c.id);
-        dismissCharcreate();
+        setScreen('game');
       });
       li.querySelector('.del').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1113,7 +1121,8 @@
         characters = characters.filter((x) => x.id !== c.id);
         if (activeCharacterId === c.id) activeCharacterId = null;
         saveCharacters();
-        renderCharacterList();
+        if (characters.length === 0) setScreen('create');
+        else renderCharacterList();
       });
       list.appendChild(li);
     }
@@ -1126,18 +1135,13 @@
     cc.name = c.name;
     cc.class_ = c.class_;
     wasm.apply_character(c.class_);
-    renderCharacterList();
   }
-  function dismissCharcreate() {
-    ccRoot.classList.add('hidden');
-    ccToggle.classList.add('on');
-  }
-  function openCharcreate() {
-    ccRoot.classList.remove('hidden');
-    ccToggle.classList.remove('on');
-    renderCharacterList();
-  }
-  ccToggle.addEventListener('click', openCharcreate);
+
+  document.getElementById('btn_create_new').addEventListener('click', () => setScreen('create'));
+  document.getElementById('cc_back').addEventListener('click', () => {
+    if (characters.length === 0) return;  // nothing to go back to
+    setScreen('select');
+  });
 
   // Every class currently uses the same rigged Meshy avatar. When the user
   // adds archer.glb / mage.glb rigged exports, branch on cc.class_ here and
@@ -1213,40 +1217,6 @@
     }
   }
 
-  // Debug: when non-null, the tick loop plays this clip regardless of speed /
-  // one-shot state. Set by the #anim_debug buttons so we can audit which GLB
-  // animation index visually maps to idle / walk / run / jump / attack — the
-  // clip *names* Meshy ships are not always trustworthy.
-  let forcedClip = null;
-  function buildAnimDebugPanel() {
-    if (!animatedAvatar) return;
-    const root = document.getElementById('anim_debug');
-    // Clear old buttons (keep header).
-    [...root.querySelectorAll('.btn')].forEach((b) => b.remove());
-    const rows = [];
-    animatedAvatar.skinner.animations.forEach((a, i) => {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      b.innerHTML = `<span>${a.name || '(unnamed)'}</span><span class="idx">#${i}</span>`;
-      b.addEventListener('click', () => {
-        forcedClip = (forcedClip === i) ? null : i;
-        rows.forEach((r) => r.el.classList.toggle('active', forcedClip === r.idx));
-        autoBtn.classList.toggle('active', forcedClip === null);
-      });
-      root.appendChild(b);
-      rows.push({ el: b, idx: i });
-    });
-    const autoBtn = document.createElement('button');
-    autoBtn.className = 'btn active';
-    autoBtn.innerHTML = `<span>auto (speed-driven)</span><span class="idx">—</span>`;
-    autoBtn.addEventListener('click', () => {
-      forcedClip = null;
-      rows.forEach((r) => r.el.classList.remove('active'));
-      autoBtn.classList.add('active');
-    });
-    root.appendChild(autoBtn);
-  }
-
   // One-shot clips. kind: 'attack' = upper-body overlay on top of walk/run/
   // idle; 'jump' = full-body, playback speed matched to physics airtime so
   // the apex of the clip lines up with the apex of the jump. Priority still
@@ -1294,19 +1264,10 @@
     wasm.set_entity_mesh(wasm.player_body_entity(), characterMeshId);
   }
   await bindCharacter();
-  buildAnimDebugPanel();
 
-  // Pick whichever character the user last selected; if the roster is empty
-  // we stay in "choose a character" mode and the avatar uses defaults until
-  // the user hits Create. Either way the world runs live behind the panel.
-  renderCharacterList();
-  if (characters.length > 0) {
-    selectCharacter(characters[0].id);
-    dismissCharcreate();
-  } else {
-    openCharcreate();
-    wasm.apply_character(0);
-  }
+  // Initial screen: select if there are saved characters, create if empty.
+  wasm.apply_character(0);
+  setScreen(characters.length > 0 ? 'select' : 'create');
 
   document.getElementById('cc_enter').addEventListener('click', () => {
     const name = ccName.value.trim();
@@ -1319,7 +1280,7 @@
     saveCharacters();
     selectCharacter(c.id);
     ccName.value = '';
-    dismissCharcreate();
+    setScreen('game');
   });
   ccName.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('cc_enter').click();
@@ -1340,11 +1301,11 @@
     canvas.requestPointerLock();
   });
   document.addEventListener('pointerlockchange', () => {
-    // Only show overlay when lock is lost *and* the charcreate panel is
-    // already dismissed — otherwise the user is still picking a character.
+    // Only show "click to play" overlay when we're actually in game mode and
+    // just lost the lock (e.g. user hit Esc).
     const hasLock = document.pointerLockElement === canvas;
-    const ccOpen = !ccRoot.classList.contains('hidden');
-    ccOverlay.classList.toggle('hidden', hasLock || ccOpen || isTouchEnv);
+    const inGame = currentScreen === 'game';
+    ccOverlay.classList.toggle('hidden', hasLock || !inGame || isTouchEnv);
   });
   document.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement === canvas)
@@ -1959,11 +1920,7 @@
       const clips = animatedAvatar.skinner.animations;
       const clipName = (idx) => (clips[idx] && clips[idx].name) || ('#' + idx);
 
-      if (forcedClip !== null) {
-        animT += dt;
-        animatedAvatar.skinner.update(dt, { baseIdx: forcedClip, baseTime: animT });
-        animDebug = `FORCED #${forcedClip} ${clipName(forcedClip)}`;
-      } else {
+      {
         // Figure out the lower-body clip (base).
         let baseIdx = -1, baseTime = 0, baseLabel = 'bind';
         if (localSpeed > 0.8) {
@@ -2025,22 +1982,12 @@
       const hh = Math.floor(hr);
       const mm = Math.floor((hr - hh) * 60);
       const mode = v[7] > 0.5 ? 'FREE' : (v[5] > 0.5 ? 'TPS' : 'FPS');
-      const rain = v[8];
-      const flash = v[9];
-      const forced = v[11] > 0.5;
-      let weather;
-      if (flash > 0.05) weather = '\u26a1';
-      else if (rain > 0.65) weather = 'storm';
-      else if (rain > 0.15) weather = 'rain';
-      else weather = 'clear';
-      if (forced) weather += '*';
-      const grounded = v[10] > 0.5 ? 'gnd' : 'air';
       statsEl.innerText =
-        `${fps} fps\n` +
-        `x ${v[0].toFixed(1)}  y ${v[1].toFixed(1)}  z ${v[2].toFixed(1)}\n` +
-        `${compass(v[3])}  ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}  ${mode}  ${weather}\n` +
-        `${lastAnimDebug}  v=${speedSmooth.toFixed(2)}  ${grounded}`;
+        `${fps} fps  ${mode}
+` +
+        `x ${v[0].toFixed(1)}  y ${v[1].toFixed(1)}  z ${v[2].toFixed(1)}`;
     }
+
 
     requestAnimationFrame(tick);
   };
