@@ -1,0 +1,17 @@
+/target
+meshy-key.txt
+
+# Local-only GLBs. `hero.glb` is the shipped asset and IS committed (see the
+# negation below). Other models (archer, wizard, warrior, character, raw Meshy
+# exports) stay local until they're actually used.
+models/*.glb
+!models/hero.glb
+
+# macOS / editor crumbs
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Syntax-check temp file the dev loop writes.
+_syntax_check.js

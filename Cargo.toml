@@ -1,0 +1,24 @@
+[package]
+name = "game"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# The WASM build relies on no_std-friendly defaults; the server binary is a
+# regular host target. Building `cargo build --release --target wasm32-...`
+# only builds the lib (cdylib). Building `cargo build --release --bin server`
+# builds the native server.

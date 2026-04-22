@@ -1,0 +1,2051 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>walk</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: fixed; top: 10px; left: 12px; color: #fff;
+    font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    pointer-events: none; opacity: 0.9;
+  }
+  #stats {
+    position: fixed; top: 10px; right: 12px; color: #fff;
+    font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    text-align: right; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    pointer-events: none; opacity: 0.85; line-height: 1.45;
+  }
+  #quests {
+    position: fixed; left: 12px; top: 72px;
+    max-width: 280px; color: #eee;
+    font: 12px ui-monospace, Consolas, monospace;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    line-height: 1.45;
+  }
+  #quests .q {
+    padding: 6px 9px; margin-bottom: 6px;
+    background: rgba(0,0,0,0.45); border-radius: 4px;
+    border-left: 3px solid #8a8;
+  }
+  #quests .q.new { border-left-color: #fbd15c; }
+  #quests .q.done { border-left-color: #6fd96f; }
+  #quests .q .title { color: #fbd15c; font-weight: 600; margin-bottom: 2px; }
+  #quests .q .obj { opacity: 0.95; }
+  #quests .q .obj.done { opacity: 0.55; text-decoration: line-through; color: #9fd; }
+  #quests .q .sub { opacity: 0.75; font-style: italic; margin-top: 3px; }
+  #quests .q .sub.ready { color: #9f9; font-style: normal; font-weight: 600; }
+  #minimap {
+    position: fixed; bottom: 12px; right: 12px;
+    width: 160px; height: 160px; border-radius: 4px;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15);
+    pointer-events: none;
+  }
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 14px; height: 14px;
+    margin-left: -7px; margin-top: -7px; pointer-events: none;
+    mix-blend-mode: difference; opacity: 0.75;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: #fff;
+  }
+  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #crosshair::after  { left: 0; top: 6px; width: 14px; height: 2px; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 18px; background: rgba(0,0,0,0.55);
+    cursor: pointer; user-select: none;
+  }
+  #overlay.hidden { display: none; }
+  /* Charcreate lives as a floating panel in the top-right while the world
+     runs live behind it — pick an existing character or roll a new one
+     without leaving the sandbox. */
+  #charcreate {
+    position: fixed; top: 12px; right: 12px;
+    color: #e5e0d0; font-family: system-ui, sans-serif; z-index: 20;
+  }
+  #charcreate.hidden { display: none; }
+  #charcreate .card {
+    width: min(320px, 92vw); max-height: calc(100vh - 24px); overflow: auto;
+    padding: 16px 18px; background: rgba(14, 15, 22, 0.88);
+    border: 1px solid rgba(240, 214, 130, 0.25); border-radius: 8px;
+    box-shadow: 0 0 30px rgba(240, 214, 130, 0.08);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  #charcreate h2 {
+    margin: 0 0 12px 0; font-size: 16px; letter-spacing: 5px;
+    color: #f0d682; text-align: center; font-weight: 500;
+  }
+  #charcreate h3 {
+    margin: 16px 0 8px 0; font-size: 11px; letter-spacing: 3px;
+    color: #a09780; font-weight: 600; text-transform: uppercase;
+  }
+  #charcreate .char_list {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  #charcreate .char_row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+    cursor: pointer; transition: 0.1s;
+  }
+  #charcreate .char_row:hover {
+    border-color: rgba(240, 214, 130, 0.55);
+    background: rgba(240, 214, 130, 0.08);
+  }
+  #charcreate .char_row.active {
+    border-color: #f0d682; color: #fff8d8;
+    background: rgba(240, 214, 130, 0.14);
+  }
+  #charcreate .char_row .name { flex: 1; font-size: 13px; font-weight: 600; }
+  #charcreate .char_row .klass { font-size: 11px; color: #9f957a; letter-spacing: 1px; text-transform: uppercase; }
+  #charcreate .char_row .del {
+    border: none; background: transparent; color: #a0695a;
+    cursor: pointer; padding: 2px 6px; font-size: 14px; line-height: 1;
+  }
+  #charcreate .char_row .del:hover { color: #ff8570; }
+  #charcreate .empty {
+    padding: 10px; text-align: center; font-size: 12px;
+    color: #6c6652; font-style: italic;
+  }
+  #charcreate .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  #charcreate label {
+    width: 52px; font-size: 10px; letter-spacing: 2px;
+    color: #a09780; text-transform: uppercase;
+  }
+  #charcreate input[type=text] {
+    flex: 1; padding: 6px 10px; background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(240, 214, 130, 0.3); border-radius: 4px;
+    color: #f5efdb; font-family: inherit; font-size: 13px; outline: none;
+  }
+  #charcreate input[type=text]:focus { border-color: #f0d682; }
+  #charcreate .grid {
+    flex: 1; display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  #charcreate button.pick {
+    flex: 1 0 calc(33.3% - 4px); min-width: 64px;
+    padding: 6px 8px; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+    color: #cfc8ad; font-family: inherit; font-size: 11px; cursor: pointer;
+    letter-spacing: 1px; transition: 0.1s;
+  }
+  #charcreate button.pick:hover { border-color: rgba(240, 214, 130, 0.5); color: #f0d682; }
+  #charcreate button.pick.active {
+    background: rgba(240, 214, 130, 0.15); border-color: #f0d682; color: #fff8d8;
+  }
+  #charcreate #cc_enter {
+    margin-top: 10px; width: 100%; padding: 10px;
+    background: linear-gradient(180deg, #f0d682 0%, #c9a550 100%);
+    border: none; border-radius: 4px; color: #1a140a;
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    letter-spacing: 3px; cursor: pointer;
+  }
+  #charcreate #cc_enter:hover { filter: brightness(1.08); }
+  /* Animation debug panel — buttons force-play a specific clip so we can
+     figure out which GLB index actually looks like what. */
+  #anim_debug {
+    position: fixed; left: 12px; bottom: 12px; z-index: 12;
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 10px;
+    background: rgba(14, 15, 22, 0.85); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; color: #cfc8ad; font: 11px ui-monospace, Consolas, monospace;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    max-width: 220px;
+  }
+  #anim_debug .hdr {
+    font-size: 10px; color: #8c8470; letter-spacing: 2px; text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  #anim_debug .btn {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 8px; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 3px;
+    color: #cfc8ad; cursor: pointer; font: inherit;
+  }
+  #anim_debug .btn:hover { border-color: rgba(240, 214, 130, 0.5); color: #f0d682; }
+  #anim_debug .btn.active { background: rgba(240, 214, 130, 0.14); border-color: #f0d682; color: #fff8d8; }
+  #anim_debug .btn .idx { color: #6c6652; font-size: 10px; }
+  /* Reopen toggle when charcreate is dismissed. */
+  #cc_toggle {
+    position: fixed; top: 12px; right: 12px; z-index: 19;
+    display: none; padding: 6px 12px;
+    background: rgba(14, 15, 22, 0.82);
+    border: 1px solid rgba(240, 214, 130, 0.25); border-radius: 4px;
+    color: #cfc8ad; font: 600 11px system-ui, sans-serif;
+    letter-spacing: 2px; cursor: pointer;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  #cc_toggle.on { display: block; }
+  #cc_toggle:hover { color: #f0d682; border-color: rgba(240, 214, 130, 0.55); }
+  #nameplate {
+    position: fixed; left: 0; top: 0; pointer-events: none;
+    color: #fff; font: 600 13px system-ui, sans-serif;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.7);
+    padding: 2px 8px; background: rgba(0,0,0,0.35);
+    border-radius: 3px; white-space: nowrap;
+    transform: translate(-50%, -100%); display: none;
+  }
+  #help {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.75); color: #eee; font: 14px ui-monospace, Consolas, monospace;
+    z-index: 10;
+  }
+  #help.open { display: flex; }
+  #help .card {
+    max-width: 680px; padding: 24px 32px; background: rgba(20,20,28,0.92);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+  }
+  #help h3 { margin: 0 0 12px 0; font-size: 16px; font-family: system-ui, sans-serif; }
+  #help table { border-collapse: collapse; }
+  #help td { padding: 3px 14px 3px 0; vertical-align: top; }
+  #help .key { color: #f8c96a; white-space: nowrap; }
+  #help .hint { margin-top: 14px; opacity: 0.6; font-size: 12px; }
+  /* ---- Mobile controls ---- */
+  /* Virtual joystick: tracks the finger inside a fixed-position base circle.
+     The thumb visually translates to reflect stick deflection; the CSS is
+     purely presentational — all WASD mapping happens in JS. */
+  #stick {
+    position: fixed; left: 28px; bottom: 28px;
+    width: 150px; height: 150px;
+    display: none; z-index: 6;
+    touch-action: none; user-select: none;
+    -webkit-user-select: none;
+  }
+  #stick.on { display: block; }
+  #stick_base {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: rgba(0,0,0,0.32);
+    border: 2px solid rgba(255,255,255,0.22);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 2px 18px rgba(0,0,0,0.4);
+  }
+  #stick_thumb {
+    position: absolute; left: 50%; top: 50%;
+    width: 62px; height: 62px; margin-left: -31px; margin-top: -31px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.38);
+    border: 2px solid rgba(255,255,255,0.55);
+    transition: background 0.08s;
+    pointer-events: none;
+    will-change: transform;
+  }
+  #stick.active #stick_thumb { background: rgba(240,214,130,0.48); border-color: #f0d682; }
+
+  #touchpad {
+    position: fixed; right: 24px; bottom: 28px;
+    display: none; pointer-events: none; z-index: 5;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #touchpad.on { display: block; }
+  /* When the touchpad is on, move the minimap out of the bottom-right to
+     avoid a button-vs-minimap overlap. Top-right is a common MMO spot. */
+  body.touch #minimap { top: 12px; bottom: auto; width: 120px; height: 120px; }
+  #touchpad button {
+    position: absolute; pointer-events: auto;
+    border: 2px solid rgba(255,255,255,0.28);
+    background: rgba(0,0,0,0.38);
+    color: #fff; font: 700 18px system-ui, sans-serif; letter-spacing: 1px;
+    border-radius: 50%; padding: 0;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    touch-action: none;
+    transition: transform 0.08s, background 0.1s;
+    box-shadow: 0 2px 18px rgba(0,0,0,0.4);
+  }
+  #touchpad button:active {
+    background: rgba(240, 214, 130, 0.40);
+    transform: scale(0.93);
+  }
+  /* Primary attack: big thumb-friendly target. Secondary jump offset up+left.*/
+  #btn_attack { right: 0; bottom: 0; width: 120px; height: 120px; font-size: 24px; color: #ffd9d0; border-color: rgba(255,140,110,0.55); }
+  #btn_jump   { right: 130px; bottom: 30px; width: 96px; height: 96px; font-size: 18px; color: #d8e7ff; border-color: rgba(130,180,255,0.55); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">WASD · shift sprint · space jump · L-click attack · F view · T fly · R-click zoom · Z storm · M music · Home reset</div>
+<div id="stats"></div>
+<div id="quests"></div>
+<canvas id="minimap" width="160" height="160"></canvas>
+<div id="nameplate"></div>
+<div id="crosshair"></div>
+<div id="stick"><div id="stick_base"></div><div id="stick_thumb"></div></div>
+<div id="touchpad"><button id="btn_jump">JUMP</button><button id="btn_attack">ATTACK</button></div>
+<div id="anim_debug"><div class="hdr">clip debug — click to preview</div></div>
+<div id="overlay" class="hidden">tap / click to play<br><span style="opacity:.6;font-size:13px">press ? for help</span></div>
+<div id="charcreate"><div class="card">
+  <h2>CHARACTERS</h2>
+  <ul id="char_list" class="char_list"></ul>
+  <h3>New</h3>
+  <div class="row"><label>Name</label><input id="cc_name" type="text" value="" placeholder="name…" maxlength="20" autocomplete="off"></div>
+  <div class="row"><label>Class</label><div class="grid" id="cc_class">
+    <button class="pick active" data-v="0">Warrior</button>
+    <button class="pick" data-v="1">Hunter</button>
+    <button class="pick" data-v="2">Mage</button>
+  </div></div>
+  <button id="cc_enter">CREATE + PLAY</button>
+</div></div>
+<button id="cc_toggle">CHARACTERS</button>
+<div id="help"><div class="card">
+  <h3>controls</h3>
+  <table>
+    <tr><td class="key">WASD</td><td>move</td><td class="key">Shift</td><td>sprint</td></tr>
+    <tr><td class="key">Space</td><td>jump</td><td class="key">mouse</td><td>look</td></tr>
+    <tr><td class="key">F</td><td>FPS / TPS</td><td class="key">T</td><td>free-cam fly</td></tr>
+    <tr><td class="key">Ctrl</td><td>fly down</td><td class="key">Home</td><td>reset position</td></tr>
+    <tr><td class="key">L-click</td><td>attack</td><td class="key">R-click</td><td>zoom</td></tr>
+    <tr><td class="key">wheel</td><td>TPS follow distance</td><td class="key">Z</td><td>toggle storm</td></tr>
+    <tr><td class="key">M</td><td>ambient music</td><td class="key">P</td><td>screenshot</td></tr>
+    <tr><td class="key">[ ]</td><td>slow / speed time</td><td class="key">= `</td><td>reset / pause time</td></tr>
+    <tr><td class="key">?</td><td>toggle this help</td><td class="key">Esc</td><td>release cursor</td></tr>
+  </table>
+  <div class="hint">gamepad + touch supported · scene is a blank plane pending asset imports</div>
+</div></div>
+<script>
+(async () => {
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl2', { antialias: true, preserveDrawingBuffer: true });
+  if (!gl) { document.body.innerText = 'WebGL2 not supported'; return; }
+
+  // Resource tables — WASM handles are indices into these.
+  const shaders = [null];
+  const programs = [null];
+  const buffers = [null];
+  const vaos = [null];
+  const uniformLocs = [null];
+  const textures = [null];
+  let memory;  // set after instantiation; new views each call (memory can grow)
+  const dec = new TextDecoder();
+  const readStr = (ptr, len) => dec.decode(new Uint8Array(memory.buffer, ptr, len));
+
+  const KEY = {
+    KeyW: 0, KeyA: 1, KeyS: 2, KeyD: 3,
+    Space: 4, ShiftLeft: 5, ShiftRight: 5,
+    KeyF: 6, KeyT: 7, ControlLeft: 8, ControlRight: 8,
+    BracketLeft: 22, BracketRight: 23, Backquote: 24, Equal: 25,
+    Home: 27, KeyZ: 29,
+  };
+
+  let audioCtx;
+  let musicOn = false;
+  let musicNodes = null;
+  function toggleMusic() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+
+    if (musicOn && musicNodes) {
+      musicNodes.gain.gain.cancelScheduledValues(now);
+      musicNodes.gain.gain.linearRampToValueAtTime(0.0, now + 1.2);
+      const nodes = musicNodes;
+      setTimeout(() => {
+        try { nodes.o1.stop(); nodes.o2.stop(); nodes.o3.stop(); nodes.lfo.stop(); } catch (_) {}
+      }, 1400);
+      musicNodes = null;
+      musicOn = false;
+      return;
+    }
+
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.05, now + 2.0);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 500; filter.Q.value = 2;
+    const lfo = audioCtx.createOscillator();
+    lfo.frequency.value = 0.08;
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 260;
+    lfo.connect(lfoGain).connect(filter.frequency);
+    lfo.start();
+
+    const o1 = audioCtx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 110; o1.detune.value = -6;
+    const o2 = audioCtx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 165; o2.detune.value =  4;
+    const o3 = audioCtx.createOscillator(); o3.type = 'triangle'; o3.frequency.value = 220; o3.detune.value = -2;
+    o1.connect(filter); o2.connect(filter); o3.connect(filter);
+    filter.connect(gain).connect(audioCtx.destination);
+    o1.start(); o2.start(); o3.start();
+
+    musicNodes = { gain, filter, o1, o2, o3, lfo };
+    musicOn = true;
+  }
+  function beep(freq, dur, gain) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.55, now + dur);
+    g.gain.setValueAtTime(gain, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  }
+
+  let wasm;
+  const QUEST_SAVE_KEY = 'walk.quests.v1';
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  function writeBuf(getBufFn, str) {
+    const bytes = encoder.encode(str);
+    const ptr = getBufFn(bytes.length);
+    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  }
+
+  function addQuest(q) {
+    writeBuf(wasm.buf_id, q.id || '');
+    writeBuf(wasm.buf_title, q.title || '');
+    writeBuf(wasm.buf_desc, q.desc || '');
+    const g = q.giver || [0, 0, 0];
+    const t = q.giverTint || [0.95, 0.72, 0.22];
+    const qi = wasm.quest_begin(+g[0], +g[1], +g[2], +t[0], +t[1], +t[2]);
+    for (const obj of (q.objectives || [])) {
+      writeBuf(wasm.buf_obj_desc, obj.desc || '');
+      const op = obj.pos || [0, 0, 0];
+      wasm.quest_add_objective(
+        qi,
+        obj.kind | 0,
+        obj.target | 0,
+        +op[0], +op[1], +op[2],
+        +(obj.radius || 0),
+        obj.count | 0
+      );
+    }
+    return qi;
+  }
+
+  function readQuestJson() {
+    const len = wasm.quest_json_len();
+    if (len === 0) return [];
+    const bytes = new Uint8Array(memory.buffer, wasm.quest_json_ptr(), len);
+    try { return JSON.parse(decoder.decode(bytes)); } catch (_) { return []; }
+  }
+
+  const imports = { env: {
+    audio_beep: (f, d, g) => beep(f, d, g),
+    gl_clear_color: (r,g,b,a) => gl.clearColor(r,g,b,a),
+    gl_clear: (m) => gl.clear(m),
+    gl_enable: (c) => gl.enable(c),
+    gl_disable: (c) => gl.disable(c),
+    gl_depth_mask: (f) => gl.depthMask(!!f),
+    gl_depth_func: (f) => gl.depthFunc(f),
+    gl_viewport: (x,y,w,h) => gl.viewport(x,y,w,h),
+    gl_create_shader: (ty) => { shaders.push(gl.createShader(ty)); return shaders.length - 1; },
+    gl_shader_source: (h, p, l) => gl.shaderSource(shaders[h], readStr(p, l)),
+    gl_compile_shader: (h) => {
+      gl.compileShader(shaders[h]);
+      if (!gl.getShaderParameter(shaders[h], gl.COMPILE_STATUS))
+        console.error('shader:', gl.getShaderInfoLog(shaders[h]));
+    },
+    gl_create_program: () => { programs.push(gl.createProgram()); return programs.length - 1; },
+    gl_attach_shader: (p, s) => gl.attachShader(programs[p], shaders[s]),
+    gl_link_program: (p) => {
+      gl.linkProgram(programs[p]);
+      if (!gl.getProgramParameter(programs[p], gl.LINK_STATUS))
+        console.error('program:', gl.getProgramInfoLog(programs[p]));
+    },
+    gl_use_program: (p) => gl.useProgram(programs[p]),
+    gl_get_uniform_location: (p, ptr, len) => {
+      uniformLocs.push(gl.getUniformLocation(programs[p], readStr(ptr, len)));
+      return uniformLocs.length - 1;
+    },
+    gl_uniform_matrix4fv: (loc, ptr) => {
+      gl.uniformMatrix4fv(uniformLocs[loc], false, new Float32Array(memory.buffer, ptr, 16));
+    },
+    gl_uniform3f: (loc, x, y, z) => gl.uniform3f(uniformLocs[loc], x, y, z),
+    gl_uniform1f: (loc, x) => gl.uniform1f(uniformLocs[loc], x),
+    gl_uniform1i: (loc, x) => gl.uniform1i(uniformLocs[loc], x),
+    gl_uniform3fv: (loc, ptr, count) => {
+      gl.uniform3fv(uniformLocs[loc], new Float32Array(memory.buffer, ptr, count * 3));
+    },
+    gl_create_buffer: () => { buffers.push(gl.createBuffer()); return buffers.length - 1; },
+    gl_bind_buffer: (t, b) => gl.bindBuffer(t, buffers[b]),
+    gl_buffer_data_f32: (t, ptr, len, usage) => {
+      gl.bufferData(t, new Float32Array(memory.buffer, ptr, len), usage);
+    },
+    gl_buffer_data_u16: (t, ptr, len, usage) => {
+      gl.bufferData(t, new Uint16Array(memory.buffer, ptr, len), usage);
+    },
+    gl_buffer_data_u32: (t, ptr, len, usage) => {
+      gl.bufferData(t, new Uint32Array(memory.buffer, ptr, len), usage);
+    },
+    gl_create_vertex_array: () => { vaos.push(gl.createVertexArray()); return vaos.length - 1; },
+    gl_bind_vertex_array: (v) => gl.bindVertexArray(vaos[v]),
+    gl_vertex_attrib_pointer: (i, sz, ty, norm, stride, off) => {
+      gl.vertexAttribPointer(i, sz, ty, !!norm, stride, off);
+    },
+    gl_enable_vertex_attrib_array: (i) => gl.enableVertexAttribArray(i),
+    gl_draw_arrays: (m, first, count) => gl.drawArrays(m, first, count),
+    gl_draw_elements: (m, count, ty, offset) => gl.drawElements(m, count, ty, offset),
+    gl_bind_texture: (target, handle) => gl.bindTexture(target, textures[handle] || null),
+    gl_active_texture: (unit) => gl.activeTexture(unit),
+  }};
+
+  const bytes = await fetch('game.wasm?v=' + Date.now()).then(r => r.arrayBuffer());
+  const { instance } = await WebAssembly.instantiate(bytes, imports);
+  wasm = instance.exports;
+  memory = wasm.memory;
+
+  function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width  = Math.floor(innerWidth  * dpr);
+    canvas.height = Math.floor(innerHeight * dpr);
+    wasm.on_resize(canvas.width, canvas.height);
+  }
+  // Size the canvas first, then initialize wasm so later setup can call wasm exports
+  // that require State (apply_character, preview_mode, etc.).
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width  = Math.floor(innerWidth  * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  wasm.init(canvas.width, canvas.height);
+  addEventListener('resize', resize);
+
+  // ============================================================
+  // Mesh pipeline: generate (or fetch) a character mesh and upload it to wasm.
+  // Layout matches upload_mesh in Rust: 9 floats per vertex (pos3, normal3, color3).
+  // ============================================================
+
+  // Upload an RGBA image (ImageBitmap, HTMLImageElement, or HTMLCanvasElement) as a WebGL
+  // texture. Returns an integer handle that can be stored on a Mesh via set_mesh_texture.
+  function uploadTextureBitmap(src) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    textures.push(tex);
+    return textures.length - 1;
+  }
+
+  function uploadMeshToWasm(verts, indices) {
+    const vp = wasm.mesh_vert_buf(verts.length);
+    new Float32Array(memory.buffer, vp, verts.length).set(verts);
+    const vertCount = verts.length / 11;
+    if (indices instanceof Uint32Array || vertCount > 65535) {
+      const idx32 = indices instanceof Uint32Array ? indices : new Uint32Array(indices);
+      const ip = wasm.mesh_idx_buf_u32(idx32.length);
+      new Uint32Array(memory.buffer, ip, idx32.length).set(idx32);
+      return wasm.mesh_upload_u32(vertCount, idx32.length);
+    }
+    const ip = wasm.mesh_idx_buf(indices.length);
+    new Uint16Array(memory.buffer, ip, indices.length).set(indices);
+    return wasm.mesh_upload(vertCount, indices.length);
+  }
+
+
+  // Parse a skinned + animated GLB. Returns bind-pose verts with per-vertex joint
+  // indices + weights alongside the skeleton and animation data, so the caller
+  // can CPU-skin a new vertex buffer each frame. Assumes a single skinned mesh
+  // (matches the Meshy export pipeline we use for the character preview).
+  async function loadAnimatedGLB(url) {
+    const buf = await fetch(url).then((r) => {
+      if (!r.ok) throw new Error('fetch failed: ' + r.status);
+      return r.arrayBuffer();
+    });
+    const dv = new DataView(buf);
+    if (dv.getUint32(0, true) !== 0x46546C67) throw new Error('not a GLB file');
+    const jsonLen = dv.getUint32(12, true);
+    const gltf = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen)));
+    const binOff = 20 + jsonLen;
+    const binLen = dv.getUint32(binOff, true);
+    const bin = new Uint8Array(buf, binOff + 8, binLen);
+    const TYPE_COMPS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+
+    function readAccessor(i) {
+      const a = gltf.accessors[i];
+      const bv = gltf.bufferViews[a.bufferView];
+      const off = (bv.byteOffset || 0) + (a.byteOffset || 0);
+      const total = a.count * (TYPE_COMPS[a.type] || 1);
+      switch (a.componentType) {
+        case 5126: return new Float32Array(bin.buffer, bin.byteOffset + off, total);
+        case 5123: return new Uint16Array(bin.buffer, bin.byteOffset + off, total);
+        case 5125: return new Uint32Array(bin.buffer, bin.byteOffset + off, total);
+        case 5121: return new Uint8Array(bin.buffer, bin.byteOffset + off, total);
+        default: throw new Error('unsupported componentType ' + a.componentType);
+      }
+    }
+
+    // Flatten gltf.meshes[*].primitives[*] into one continuous vertex/index buffer.
+    // Track which node parents each primitive so we can bake its local-to-mesh
+    // transform into bind-pose positions (skinning then works in mesh space).
+    const bindPos = [], bindNrm = [], bindUV = [], joints = [], weights = [];
+    const indicesOut = [];
+    let vCount = 0, skinIdx = -1, meshNodeIdx = -1;
+
+    const nodeLocalMatTRS = (t, q, s) => {
+      const x = q[0], y = q[1], z = q[2], w = q[3];
+      const xx = x*x, yy = y*y, zz = z*z;
+      const xy = x*y, xz = x*z, yz = y*z;
+      const wx = w*x, wy = w*y, wz = w*z;
+      const m = new Float32Array(16);
+      m[0]  = (1 - 2*(yy + zz)) * s[0];  m[1]  = (2*(xy + wz)) * s[0];        m[2]  = (2*(xz - wy)) * s[0];        m[3]  = 0;
+      m[4]  = (2*(xy - wz)) * s[1];      m[5]  = (1 - 2*(xx + zz)) * s[1];    m[6]  = (2*(yz + wx)) * s[1];        m[7]  = 0;
+      m[8]  = (2*(xz + wy)) * s[2];      m[9]  = (2*(yz - wx)) * s[2];        m[10] = (1 - 2*(xx + yy)) * s[2];    m[11] = 0;
+      m[12] = t[0];                      m[13] = t[1];                        m[14] = t[2];                         m[15] = 1;
+      return m;
+    };
+    const nodeLocalMat = (n) => {
+      if (n.matrix) return new Float32Array(n.matrix);
+      return nodeLocalMatTRS(n.translation || [0,0,0], n.rotation || [0,0,0,1], n.scale || [1,1,1]);
+    };
+    function mat4Mul(a, b) {
+      const r = new Float32Array(16);
+      for (let c = 0; c < 4; c++) for (let r2 = 0; r2 < 4; r2++) {
+        let s = 0;
+        for (let k = 0; k < 4; k++) s += a[k*4+r2] * b[c*4+k];
+        r[c*4+r2] = s;
+      }
+      return r;
+    }
+
+    const nodes = gltf.nodes || [];
+    const nodeWorld = new Array(nodes.length).fill(null);
+    const identity = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    function walk(ni, parent) {
+      const n = nodes[ni];
+      const local = nodeLocalMat(n);
+      nodeWorld[ni] = mat4Mul(parent, local);
+      if (n.children) for (const c of n.children) walk(c, nodeWorld[ni]);
+    }
+    const scene = gltf.scenes ? gltf.scenes[gltf.scene || 0] : null;
+    const roots = scene ? scene.nodes : nodes.map((_, i) => i);
+    for (const r of roots) walk(r, identity);
+
+    // Find the first node that has a mesh + skin — that's our animated character root.
+    let meshWorldAtBind = identity;
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const n = nodes[ni];
+      if (n.mesh !== undefined && n.skin !== undefined) {
+        meshNodeIdx = ni;
+        skinIdx = n.skin;
+        meshWorldAtBind = nodeWorld[ni] || identity;
+        break;
+      }
+    }
+    if (skinIdx < 0) throw new Error('no skinned primitive found');
+
+    const mesh = gltf.meshes[nodes[meshNodeIdx].mesh];
+    let firstMaterialIdx = -1;
+    for (const prim of mesh.primitives) {
+      if (firstMaterialIdx < 0 && prim.material !== undefined) firstMaterialIdx = prim.material;
+      const pos = readAccessor(prim.attributes.POSITION);
+      const nrm = prim.attributes.NORMAL !== undefined ? readAccessor(prim.attributes.NORMAL) : null;
+      const uv  = prim.attributes.TEXCOORD_0 !== undefined ? readAccessor(prim.attributes.TEXCOORD_0) : null;
+      const jnt = readAccessor(prim.attributes.JOINTS_0);
+      const wgt = readAccessor(prim.attributes.WEIGHTS_0);
+      const count = pos.length / 3;
+      for (let i = 0; i < count; i++) {
+        bindPos.push(pos[i*3], pos[i*3+1], pos[i*3+2]);
+        bindNrm.push(nrm ? nrm[i*3] : 0, nrm ? nrm[i*3+1] : 1, nrm ? nrm[i*3+2] : 0);
+        bindUV.push(uv ? uv[i*2] : 0, uv ? uv[i*2+1] : 0);
+        joints.push(jnt[i*4]|0, jnt[i*4+1]|0, jnt[i*4+2]|0, jnt[i*4+3]|0);
+        weights.push(wgt[i*4], wgt[i*4+1], wgt[i*4+2], wgt[i*4+3]);
+      }
+      if (prim.indices !== undefined) {
+        const idx = readAccessor(prim.indices);
+        for (let i = 0; i < idx.length; i++) indicesOut.push(vCount + idx[i]);
+      } else {
+        for (let i = 0; i < count; i++) indicesOut.push(vCount + i);
+      }
+      vCount += count;
+    }
+
+    const skin = gltf.skins[skinIdx];
+    const jointNodes = skin.joints.slice();
+    const ibmRaw = skin.inverseBindMatrices !== undefined
+      ? readAccessor(skin.inverseBindMatrices)
+      : new Float32Array(jointNodes.length * 16);
+    // Copy into a plain array of 16-float matrices.
+    const ibm = [];
+    for (let j = 0; j < jointNodes.length; j++) {
+      ibm.push(new Float32Array(ibmRaw.buffer, ibmRaw.byteOffset + j * 16 * 4, 16));
+    }
+
+    // Capture baseline TRS per node so the skinner can reset between frames before
+    // overlaying whatever channels the current animation sample dictates.
+    const baseTRS = nodes.map((n) => ({
+      t: n.translation ? n.translation.slice() : [0,0,0],
+      r: n.rotation ? n.rotation.slice() : [0,0,0,1],
+      s: n.scale ? n.scale.slice() : [1,1,1],
+      children: n.children ? n.children.slice() : [],
+      name: n.name || '',
+    }));
+
+    // Animations: [{ name, duration, channels: [{ nodeIdx, path, times, values, interp }] }]
+    const animsOut = [];
+    for (const anim of (gltf.animations || [])) {
+      let duration = 0;
+      const chans = [];
+      for (const ch of anim.channels) {
+        const samp = anim.samplers[ch.sampler];
+        const times = readAccessor(samp.input);
+        const values = readAccessor(samp.output);
+        const interp = samp.interpolation || 'LINEAR';
+        if (times.length > 0) duration = Math.max(duration, times[times.length - 1]);
+        chans.push({ nodeIdx: ch.target.node, path: ch.target.path, times, values, interp });
+      }
+      animsOut.push({ name: anim.name || '', duration, channels: chans });
+    }
+
+    // Resolve baseColor texture (same as the static loader).
+    let imageBitmap = null;
+    try {
+      if (firstMaterialIdx >= 0 && gltf.materials) {
+        const mat = gltf.materials[firstMaterialIdx];
+        const pbr = mat && mat.pbrMetallicRoughness;
+        const bct = pbr && pbr.baseColorTexture;
+        if (bct) {
+          const texDef = gltf.textures[bct.index];
+          const imgDef = gltf.images[texDef.source];
+          let imgBytes;
+          if (imgDef.bufferView !== undefined) {
+            const bv = gltf.bufferViews[imgDef.bufferView];
+            imgBytes = new Uint8Array(bin.buffer, bin.byteOffset + (bv.byteOffset || 0), bv.byteLength);
+          }
+          if (imgBytes) {
+            const blob = new Blob([imgBytes], { type: imgDef.mimeType || 'image/png' });
+            imageBitmap = await createImageBitmap(blob);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Auto-fit: figure out bind-pose height so the posed avatar lands at our 1.7m
+    // target. We bake the fit into a single uniform scale + origin offset applied
+    // after skinning, not into bindPos, so animation translations stay in their
+    // original units.
+    let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    // Compute a conservative bounding box from the current joint world positions
+    // (captures where the mesh actually is) plus raw bind verts, in mesh-local space.
+    for (let i = 0; i < bindPos.length; i += 3) {
+      const x = bindPos[i], y = bindPos[i+1], z = bindPos[i+2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    const height = maxY - minY;
+    const scale = height > 0.001 ? 1.7 / height : 1.0;
+    const offsetX = -(minX + maxX) * 0.5;
+    const offsetY = -minY;
+    const offsetZ = -(minZ + maxZ) * 0.5;
+
+    console.log(`[GLB-anim] ${vCount} verts, ${jointNodes.length} joints, ${animsOut.length} anims, height ${height.toFixed(2)}m → ×${scale.toFixed(3)}`);
+
+    return {
+      bindPos: new Float32Array(bindPos),
+      bindNrm: new Float32Array(bindNrm),
+      bindUV:  new Float32Array(bindUV),
+      joints:  new Uint16Array(joints),
+      weights: new Float32Array(weights),
+      indices: vCount > 65535 ? new Uint32Array(indicesOut) : new Uint16Array(indicesOut),
+      vCount,
+      skinJoints: jointNodes,
+      ibm,
+      nodes: baseTRS,
+      roots,
+      animations: animsOut,
+      imageBitmap,
+      fit: { scale, offsetX, offsetY, offsetZ },
+    };
+  }
+
+  // Build a skinning function bound to an animated GLB + the mesh handle it got
+  // uploaded into. Supports:
+  //   - Persistent displayed TRS per node (smoothed toward the per-frame
+  //     target) so switching clips crossfades instead of snapping joints.
+  //   - Upper-body overlay — a second clip can drive only nodes whose gltf
+  //     node names look like chest/neck/shoulder/arm/hand, while the base
+  //     clip keeps driving legs/hips. Lets an attack swing play on top of a
+  //     walk/run cycle without cutting off the legs.
+  //   - A baseline-only mode (baseIdx = -1) that targets the rig's bind pose,
+  //     used as the still stance.
+  //
+  // API: update(dt, { baseIdx, baseTime, upperIdx, upperTime, blendRate })
+  //   baseIdx = -1 → target is bind pose.
+  //   upperIdx = -1 → no upper-body overlay.
+  //   blendRate defaults to 18 (≈ 55ms response time).
+  function makeSkinner(glb, meshId) {
+    const { bindPos, bindNrm, bindUV, joints, weights, vCount,
+            skinJoints, ibm, nodes, roots, animations, fit } = glb;
+    const nodeCount = nodes.length;
+
+    // Target TRS built each frame (from sampling clips or baseline).
+    const tgtT = new Float32Array(nodeCount * 3);
+    const tgtR = new Float32Array(nodeCount * 4);
+    const tgtS = new Float32Array(nodeCount * 3);
+    // Overlay TRS used when an upper-body clip is layered on.
+    const upT  = new Float32Array(nodeCount * 3);
+    const upR  = new Float32Array(nodeCount * 4);
+    const upS  = new Float32Array(nodeCount * 3);
+    // Displayed TRS persists across frames; smoothed toward target. This is
+    // what actually drives the tree walk and skinning.
+    const dispT = new Float32Array(nodeCount * 3);
+    const dispR = new Float32Array(nodeCount * 4);
+    const dispS = new Float32Array(nodeCount * 3);
+    // Seed display from baseline so the first frame is the bind pose, not NaN.
+    for (let i = 0; i < nodeCount; i++) {
+      const b = nodes[i];
+      dispT[i*3]=b.t[0]; dispT[i*3+1]=b.t[1]; dispT[i*3+2]=b.t[2];
+      dispR[i*4]=b.r[0]; dispR[i*4+1]=b.r[1]; dispR[i*4+2]=b.r[2]; dispR[i*4+3]=b.r[3];
+      dispS[i*3]=b.s[0]; dispS[i*3+1]=b.s[1]; dispS[i*3+2]=b.s[2];
+    }
+
+    // Upper-body bone mask by node name. Hits Mixamo/Meshy conventions —
+    // anything involved in arms, hands, chest, shoulders, neck, head follows
+    // the overlay clip. Legs/hips/root stay on the base clip.
+    const UPPER_RE = /(spine|chest|neck|head|shoulder|clavicle|arm|hand|finger|thumb)/i;
+    const isUpper = new Uint8Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) {
+      if (UPPER_RE.test(nodes[i].name || '')) isUpper[i] = 1;
+    }
+
+    const nodeWorld = new Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) nodeWorld[i] = new Float32Array(16);
+    const jointMats = new Array(skinJoints.length);
+    for (let j = 0; j < skinJoints.length; j++) jointMats[j] = new Float32Array(16);
+    const outVerts = new Float32Array(vCount * 11);
+
+    // Precomputed bind-pose verts kept around as a cheap fallback the one
+    // time the mesh handle exists but the skinner hasn't run a real frame.
+    const bindVerts = new Float32Array(vCount * 11);
+    {
+      const s = fit.scale, ox = fit.offsetX, oy = fit.offsetY, oz = fit.offsetZ;
+      for (let i = 0; i < vCount; i++) {
+        const o = i * 11;
+        bindVerts[o]   = (bindPos[i*3]     + ox) * s;
+        bindVerts[o+1] = (bindPos[i*3+1]   + oy) * s;
+        bindVerts[o+2] = (bindPos[i*3+2]   + oz) * s;
+        bindVerts[o+3] = bindNrm[i*3]; bindVerts[o+4] = bindNrm[i*3+1]; bindVerts[o+5] = bindNrm[i*3+2];
+        bindVerts[o+6] = 1; bindVerts[o+7] = 1; bindVerts[o+8] = 1;
+        bindVerts[o+9] = bindUV[i*2]; bindVerts[o+10] = bindUV[i*2+1];
+      }
+    }
+
+    function resetToBaseline(dT, dR, dS) {
+      for (let i = 0; i < nodeCount; i++) {
+        const b = nodes[i];
+        dT[i*3]=b.t[0]; dT[i*3+1]=b.t[1]; dT[i*3+2]=b.t[2];
+        dR[i*4]=b.r[0]; dR[i*4+1]=b.r[1]; dR[i*4+2]=b.r[2]; dR[i*4+3]=b.r[3];
+        dS[i*3]=b.s[0]; dS[i*3+1]=b.s[1]; dS[i*3+2]=b.s[2];
+      }
+    }
+    function sampleInto(anim, t, dT, dR, dS) {
+      const tt = anim.duration > 0 ? t - Math.floor(t / anim.duration) * anim.duration : 0;
+      for (const ch of anim.channels) {
+        const { times, values, nodeIdx, path } = ch;
+        if (times.length === 0) continue;
+        let i1 = 0;
+        while (i1 < times.length && times[i1] < tt) i1++;
+        if (i1 === 0) i1 = 1;
+        if (i1 >= times.length) i1 = times.length - 1;
+        const i0 = i1 - 1;
+        const t0 = times[i0], t1 = times[i1];
+        const u = t1 > t0 ? (tt - t0) / (t1 - t0) : 0;
+        if (path === 'translation' || path === 'scale') {
+          const off0 = i0 * 3, off1 = i1 * 3;
+          const ax = values[off0], ay = values[off0+1], az = values[off0+2];
+          const bx = values[off1], by = values[off1+1], bz = values[off1+2];
+          const x = ax + (bx - ax) * u;
+          const y = ay + (by - ay) * u;
+          const z = az + (bz - az) * u;
+          if (path === 'translation') {
+            dT[nodeIdx*3] = x; dT[nodeIdx*3+1] = y; dT[nodeIdx*3+2] = z;
+          } else {
+            dS[nodeIdx*3] = x; dS[nodeIdx*3+1] = y; dS[nodeIdx*3+2] = z;
+          }
+        } else if (path === 'rotation') {
+          const off0 = i0 * 4, off1 = i1 * 4;
+          let ax = values[off0], ay = values[off0+1], az = values[off0+2], aw = values[off0+3];
+          let bx = values[off1], by = values[off1+1], bz = values[off1+2], bw = values[off1+3];
+          let d = ax*bx + ay*by + az*bz + aw*bw;
+          if (d < 0) { bx = -bx; by = -by; bz = -bz; bw = -bw; d = -d; }
+          let s0, s1;
+          if (d > 0.9995) { s0 = 1 - u; s1 = u; }
+          else {
+            const th = Math.acos(d), sth = Math.sin(th);
+            s0 = Math.sin((1-u)*th) / sth;
+            s1 = Math.sin(u*th) / sth;
+          }
+          dR[nodeIdx*4]   = ax*s0 + bx*s1;
+          dR[nodeIdx*4+1] = ay*s0 + by*s1;
+          dR[nodeIdx*4+2] = az*s0 + bz*s1;
+          dR[nodeIdx*4+3] = aw*s0 + bw*s1;
+        }
+      }
+    }
+
+    // Exponential blend: display ← lerp(display, target, k) per-frame,
+    // where k = 1 − exp(−dt · rate). Quaternions get a proper slerp so half-
+    // turn clips don't blow up.
+    function blendDisplay(dt, rate) {
+      const k = 1 - Math.exp(-Math.max(dt, 0) * rate);
+      for (let i = 0; i < nodeCount; i++) {
+        dispT[i*3]   += (tgtT[i*3]   - dispT[i*3])   * k;
+        dispT[i*3+1] += (tgtT[i*3+1] - dispT[i*3+1]) * k;
+        dispT[i*3+2] += (tgtT[i*3+2] - dispT[i*3+2]) * k;
+        dispS[i*3]   += (tgtS[i*3]   - dispS[i*3])   * k;
+        dispS[i*3+1] += (tgtS[i*3+1] - dispS[i*3+1]) * k;
+        dispS[i*3+2] += (tgtS[i*3+2] - dispS[i*3+2]) * k;
+        let ax=dispR[i*4], ay=dispR[i*4+1], az=dispR[i*4+2], aw=dispR[i*4+3];
+        let bx=tgtR[i*4], by=tgtR[i*4+1], bz=tgtR[i*4+2], bw=tgtR[i*4+3];
+        let d = ax*bx + ay*by + az*bz + aw*bw;
+        if (d < 0) { bx=-bx; by=-by; bz=-bz; bw=-bw; d=-d; }
+        let s0, s1;
+        if (d > 0.9995) { s0 = 1-k; s1 = k; }
+        else {
+          const th = Math.acos(d), sth = Math.sin(th);
+          s0 = Math.sin((1-k)*th) / sth;
+          s1 = Math.sin(k*th) / sth;
+        }
+        dispR[i*4]   = ax*s0 + bx*s1;
+        dispR[i*4+1] = ay*s0 + by*s1;
+        dispR[i*4+2] = az*s0 + bz*s1;
+        dispR[i*4+3] = aw*s0 + bw*s1;
+      }
+    }
+
+    function mat4MulInto(out, a, b) {
+      for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+        let s = 0;
+        for (let k = 0; k < 4; k++) s += a[k*4+r] * b[c*4+k];
+        out[c*4+r] = s;
+      }
+    }
+    function composeFromDisp(out, ni) {
+      const tx = dispT[ni*3], ty = dispT[ni*3+1], tz = dispT[ni*3+2];
+      const x = dispR[ni*4], y = dispR[ni*4+1], z = dispR[ni*4+2], w = dispR[ni*4+3];
+      const sx = dispS[ni*3], sy = dispS[ni*3+1], sz = dispS[ni*3+2];
+      const xx = x*x, yy = y*y, zz = z*z;
+      const xy = x*y, xz = x*z, yz = y*z;
+      const wx = w*x, wy = w*y, wz = w*z;
+      out[0]  = (1 - 2*(yy + zz)) * sx;  out[1]  = (2*(xy + wz)) * sx;      out[2]  = (2*(xz - wy)) * sx;      out[3]  = 0;
+      out[4]  = (2*(xy - wz)) * sy;      out[5]  = (1 - 2*(xx + zz)) * sy;  out[6]  = (2*(yz + wx)) * sy;      out[7]  = 0;
+      out[8]  = (2*(xz + wy)) * sz;      out[9]  = (2*(yz - wx)) * sz;      out[10] = (1 - 2*(xx + yy)) * sz;  out[11] = 0;
+      out[12] = tx; out[13] = ty; out[14] = tz; out[15] = 1;
+    }
+    const _local = new Float32Array(16);
+
+    return {
+      animations,
+      isUpper,
+      update(dt, opts) {
+        const baseIdx   = (opts && opts.baseIdx  !== undefined) ? opts.baseIdx  : -1;
+        const baseTime  = (opts && opts.baseTime !== undefined) ? opts.baseTime : 0;
+        const upperIdx  = (opts && opts.upperIdx !== undefined) ? opts.upperIdx : -1;
+        const upperTime = (opts && opts.upperTime !== undefined)? opts.upperTime: 0;
+        const blendRate = (opts && opts.blendRate)              ? opts.blendRate: 18;
+
+        // Target = baseline, then base clip, then upper clip masked onto upper body.
+        resetToBaseline(tgtT, tgtR, tgtS);
+        if (baseIdx >= 0 && animations[baseIdx]) {
+          sampleInto(animations[baseIdx], baseTime, tgtT, tgtR, tgtS);
+        }
+        if (upperIdx >= 0 && animations[upperIdx]) {
+          resetToBaseline(upT, upR, upS);
+          sampleInto(animations[upperIdx], upperTime, upT, upR, upS);
+          for (let i = 0; i < nodeCount; i++) {
+            if (!isUpper[i]) continue;
+            tgtT[i*3]=upT[i*3]; tgtT[i*3+1]=upT[i*3+1]; tgtT[i*3+2]=upT[i*3+2];
+            tgtR[i*4]=upR[i*4]; tgtR[i*4+1]=upR[i*4+1]; tgtR[i*4+2]=upR[i*4+2]; tgtR[i*4+3]=upR[i*4+3];
+            tgtS[i*3]=upS[i*3]; tgtS[i*3+1]=upS[i*3+1]; tgtS[i*3+2]=upS[i*3+2];
+          }
+        }
+
+        blendDisplay(dt, blendRate);
+
+        // Walk scene tree into nodeWorld.
+        const stack = [];
+        for (const r of roots) stack.push([r, null]);
+        while (stack.length) {
+          const [ni, parent] = stack.pop();
+          composeFromDisp(_local, ni);
+          if (parent === null) nodeWorld[ni].set(_local);
+          else mat4MulInto(nodeWorld[ni], nodeWorld[parent], _local);
+          for (const c of nodes[ni].children) stack.push([c, ni]);
+        }
+
+        // Per-joint skinning matrix = nodeWorld * inverseBindMatrix.
+        for (let j = 0; j < skinJoints.length; j++) {
+          mat4MulInto(jointMats[j], nodeWorld[skinJoints[j]], ibm[j]);
+        }
+
+        // Skin each vertex. Apply the auto-fit (center + height scale) last so the
+        // resulting mesh sits at feet=0, ~1.7m tall at the origin.
+        const s = fit.scale, ox = fit.offsetX, oy = fit.offsetY, oz = fit.offsetZ;
+        for (let i = 0; i < vCount; i++) {
+          const px = bindPos[i*3], py = bindPos[i*3+1], pz = bindPos[i*3+2];
+          const nx = bindNrm[i*3], ny = bindNrm[i*3+1], nz = bindNrm[i*3+2];
+          const j0 = joints[i*4], j1 = joints[i*4+1], j2 = joints[i*4+2], j3 = joints[i*4+3];
+          const w0 = weights[i*4], w1 = weights[i*4+1], w2 = weights[i*4+2], w3 = weights[i*4+3];
+          const m0 = jointMats[j0], m1 = jointMats[j1], m2 = jointMats[j2], m3 = jointMats[j3];
+          const a00 = m0[0]*w0 + m1[0]*w1 + m2[0]*w2 + m3[0]*w3;
+          const a01 = m0[1]*w0 + m1[1]*w1 + m2[1]*w2 + m3[1]*w3;
+          const a02 = m0[2]*w0 + m1[2]*w1 + m2[2]*w2 + m3[2]*w3;
+          const a10 = m0[4]*w0 + m1[4]*w1 + m2[4]*w2 + m3[4]*w3;
+          const a11 = m0[5]*w0 + m1[5]*w1 + m2[5]*w2 + m3[5]*w3;
+          const a12 = m0[6]*w0 + m1[6]*w1 + m2[6]*w2 + m3[6]*w3;
+          const a20 = m0[8]*w0 + m1[8]*w1 + m2[8]*w2 + m3[8]*w3;
+          const a21 = m0[9]*w0 + m1[9]*w1 + m2[9]*w2 + m3[9]*w3;
+          const a22 = m0[10]*w0 + m1[10]*w1 + m2[10]*w2 + m3[10]*w3;
+          const t0  = m0[12]*w0 + m1[12]*w1 + m2[12]*w2 + m3[12]*w3;
+          const t1  = m0[13]*w0 + m1[13]*w1 + m2[13]*w2 + m3[13]*w3;
+          const t2  = m0[14]*w0 + m1[14]*w1 + m2[14]*w2 + m3[14]*w3;
+          let rx = a00*px + a10*py + a20*pz + t0;
+          let ry = a01*px + a11*py + a21*pz + t1;
+          let rz = a02*px + a12*py + a22*pz + t2;
+          rx = (rx + ox) * s;
+          ry = (ry + oy) * s;
+          rz = (rz + oz) * s;
+          let vnx = a00*nx + a10*ny + a20*nz;
+          let vny = a01*nx + a11*ny + a21*nz;
+          let vnz = a02*nx + a12*ny + a22*nz;
+          const inv = 1 / (Math.hypot(vnx, vny, vnz) || 1);
+          vnx *= inv; vny *= inv; vnz *= inv;
+          const o = i * 11;
+          outVerts[o]   = rx; outVerts[o+1] = ry; outVerts[o+2] = rz;
+          outVerts[o+3] = vnx; outVerts[o+4] = vny; outVerts[o+5] = vnz;
+          outVerts[o+6] = 1;  outVerts[o+7] = 1;   outVerts[o+8] = 1;
+          outVerts[o+9] = bindUV[i*2]; outVerts[o+10] = bindUV[i*2+1];
+        }
+
+        const ptr = wasm.mesh_vert_buf(outVerts.length);
+        new Float32Array(memory.buffer, ptr, outVerts.length).set(outVerts);
+        wasm.mesh_update_verts(meshId, vCount);
+      },
+
+      showBindPose() {
+        const ptr = wasm.mesh_vert_buf(bindVerts.length);
+        new Float32Array(memory.buffer, ptr, bindVerts.length).set(bindVerts);
+        wasm.mesh_update_verts(meshId, vCount);
+      },
+    };
+  }
+
+  // Character-mesh state.
+  let characterMeshId = -1;
+
+  // ---- Character roster (persisted locally). Each entry: {id, name, class_, createdAt}. ----
+  const CHARS_KEY = 'walk.characters.v2';
+  const CLASS_NAMES = ['Warrior', 'Hunter', 'Mage'];
+  let characters = [];
+  try {
+    const saved = localStorage.getItem(CHARS_KEY);
+    if (saved) characters = JSON.parse(saved) || [];
+    if (!Array.isArray(characters)) characters = [];
+  } catch (_) { characters = []; }
+  // Migrate the old single-character save (walk.character.v1) into the roster.
+  try {
+    const legacy = localStorage.getItem('walk.character.v1');
+    if (legacy && characters.length === 0) {
+      const l = JSON.parse(legacy);
+      if (l && typeof l.name === 'string') {
+        characters.push({
+          id: 'c_' + Math.random().toString(36).slice(2, 8),
+          name: l.name || 'Traveler',
+          class_: Math.max(0, Math.min(2, l.class_|0)),
+          createdAt: Date.now(),
+        });
+      }
+    }
+  } catch (_) {}
+  const saveCharacters = () => {
+    try { localStorage.setItem(CHARS_KEY, JSON.stringify(characters)); } catch (_) {}
+  };
+
+  // Currently-active character (whichever we're playing as). The first time
+  // the page loads with an empty roster, `cc` stays at defaults and the
+  // charcreate panel forces a selection before anything multiplayer-facing
+  // activates.
+  const cc = { id: null, name: 'Traveler', class_: 0 };
+  let activeCharacterId = null;
+
+  const ccRoot = document.getElementById('charcreate');
+  const ccToggle = document.getElementById('cc_toggle');
+  const ccOverlay = document.getElementById('overlay');
+  const ccName = document.getElementById('cc_name');
+  const ccClassRoot = document.getElementById('cc_class');
+  // Class picker for the "new character" form — doesn't apply until Create is hit.
+  let newClass = 0;
+  ccClassRoot.querySelectorAll('.pick').forEach((el) => {
+    if (+el.dataset.v === newClass) el.classList.add('active');
+    el.addEventListener('click', () => {
+      newClass = +el.dataset.v;
+      ccClassRoot.querySelectorAll('.pick').forEach((e2) =>
+        e2.classList.toggle('active', +e2.dataset.v === newClass));
+    });
+  });
+
+  function renderCharacterList() {
+    const list = document.getElementById('char_list');
+    list.innerHTML = '';
+    if (characters.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'no characters yet — create one below';
+      list.appendChild(li);
+      return;
+    }
+    for (const c of characters) {
+      const li = document.createElement('li');
+      li.className = 'char_row' + (c.id === activeCharacterId ? ' active' : '');
+      li.innerHTML = `<span class="name"></span><span class="klass"></span><button class="del" title="delete">×</button>`;
+      li.querySelector('.name').textContent = c.name;
+      li.querySelector('.klass').textContent = CLASS_NAMES[c.class_] || '?';
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('.del')) return;
+        selectCharacter(c.id);
+        dismissCharcreate();
+      });
+      li.querySelector('.del').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete ${c.name}?`)) return;
+        characters = characters.filter((x) => x.id !== c.id);
+        if (activeCharacterId === c.id) activeCharacterId = null;
+        saveCharacters();
+        renderCharacterList();
+      });
+      list.appendChild(li);
+    }
+  }
+  function selectCharacter(id) {
+    const c = characters.find((x) => x.id === id);
+    if (!c) return;
+    activeCharacterId = c.id;
+    cc.id = c.id;
+    cc.name = c.name;
+    cc.class_ = c.class_;
+    wasm.apply_character(c.class_);
+    renderCharacterList();
+  }
+  function dismissCharcreate() {
+    ccRoot.classList.add('hidden');
+    ccToggle.classList.add('on');
+  }
+  function openCharcreate() {
+    ccRoot.classList.remove('hidden');
+    ccToggle.classList.remove('on');
+    renderCharacterList();
+  }
+  ccToggle.addEventListener('click', openCharcreate);
+
+  // Every class currently uses the same rigged Meshy avatar. When the user
+  // adds archer.glb / mage.glb rigged exports, branch on cc.class_ here and
+  // swap meshes before entering the world.
+  let animatedAvatar = null;
+  async function loadAnimatedAvatar() {
+    if (animatedAvatar !== null) return animatedAvatar;
+    const url = 'models/hero.glb';
+    try {
+      const glb = await loadAnimatedGLB(url);
+      const seed = new Float32Array(glb.vCount * 11);
+      for (let i = 0; i < glb.vCount; i++) {
+        const o = i * 11;
+        seed[o]   = (glb.bindPos[i*3]     + glb.fit.offsetX) * glb.fit.scale;
+        seed[o+1] = (glb.bindPos[i*3+1]   + glb.fit.offsetY) * glb.fit.scale;
+        seed[o+2] = (glb.bindPos[i*3+2]   + glb.fit.offsetZ) * glb.fit.scale;
+        seed[o+3] = glb.bindNrm[i*3]; seed[o+4] = glb.bindNrm[i*3+1]; seed[o+5] = glb.bindNrm[i*3+2];
+        seed[o+6] = 1; seed[o+7] = 1; seed[o+8] = 1;
+        seed[o+9] = glb.bindUV[i*2]; seed[o+10] = glb.bindUV[i*2+1];
+      }
+      const meshId = uploadMeshToWasm(seed, glb.indices);
+      const texHandle = glb.imageBitmap ? uploadTextureBitmap(glb.imageBitmap) : 0;
+      if (texHandle) wasm.set_mesh_texture(meshId, texHandle);
+      const skinner = makeSkinner(glb, meshId);
+      // Remote players need their own skinner + VBO so they animate
+      // independently of the local player. Stash the GLB + bind-pose seed so
+      // we can spawn fresh instances on demand.
+      const seedCopy = seed;  // already fully baked to the engine's 11-float layout
+      // hero.glb ships with mis-labeled clips from Meshy. The correct VISUAL
+      // mapping (confirmed by the user auditing the scene) is:
+      //   #0 Attack        -> attack swing
+      //   #1 Combat_Stance -> walk cycle (this is what you want on W)
+      //   #2 Left_Slash    -> attack variant
+      //   #3 Regular_Jump  -> unused / wrong-looking jump
+      //   #4 Running       -> run cycle
+      //   #5 Walking       -> actual jump (this is what you want on Space)
+      // We hardcode indices instead of name regex so label drift doesn't
+      // scramble the state machine again. If the asset is ever re-exported
+      // with correct names, audit via the #anim_debug panel before touching.
+      const byName = (nm) => {
+        const i = glb.animations.findIndex((a) => a.name === nm);
+        return i >= 0 ? i : 0;
+      };
+      // Confirmed visual mapping after user audit — every clip in hero.glb is
+      // mis-named by Meshy:
+      //   Combat_Stance -> walk
+      //   Attack        -> run
+      //   Running       -> attack swing
+      //   Walking       -> jump
+      const walkIdx   = byName('Combat_Stance');
+      const runIdx    = byName('Attack');
+      const idleIdx   = -1;                       // no real idle — fall back to bind pose
+      const jumpIdx   = byName('Walking');
+      const attackIdx = byName('Running');
+      animatedAvatar = {
+        meshId, texHandle, skinner,
+        walkIdx:   walkIdx   >= 0 ? walkIdx   : 0,
+        runIdx:    runIdx    >= 0 ? runIdx    : (walkIdx >= 0 ? walkIdx : 0),
+        idleIdx,   // -1 → use bind pose
+        jumpIdx,   // -1 → no jump clip available
+        attackIdx, // -1 → no attack clip available
+        glb,       // retain for spawning remote-player skinner instances
+        seed: seedCopy,
+      };
+      console.log('[anim] idle=', idleIdx, 'walk=', walkIdx, 'run=', runIdx,
+                  'jump=', jumpIdx, 'attack=', attackIdx,
+                  '— clips:', glb.animations.map((a) => a.name).join(', '));
+      return animatedAvatar;
+    } catch (e) {
+      console.warn('[GLB-anim] load failed:', e.message || e);
+      animatedAvatar = false;
+      return false;
+    }
+  }
+
+  // Debug: when non-null, the tick loop plays this clip regardless of speed /
+  // one-shot state. Set by the #anim_debug buttons so we can audit which GLB
+  // animation index visually maps to idle / walk / run / jump / attack — the
+  // clip *names* Meshy ships are not always trustworthy.
+  let forcedClip = null;
+  function buildAnimDebugPanel() {
+    if (!animatedAvatar) return;
+    const root = document.getElementById('anim_debug');
+    // Clear old buttons (keep header).
+    [...root.querySelectorAll('.btn')].forEach((b) => b.remove());
+    const rows = [];
+    animatedAvatar.skinner.animations.forEach((a, i) => {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.innerHTML = `<span>${a.name || '(unnamed)'}</span><span class="idx">#${i}</span>`;
+      b.addEventListener('click', () => {
+        forcedClip = (forcedClip === i) ? null : i;
+        rows.forEach((r) => r.el.classList.toggle('active', forcedClip === r.idx));
+        autoBtn.classList.toggle('active', forcedClip === null);
+      });
+      root.appendChild(b);
+      rows.push({ el: b, idx: i });
+    });
+    const autoBtn = document.createElement('button');
+    autoBtn.className = 'btn active';
+    autoBtn.innerHTML = `<span>auto (speed-driven)</span><span class="idx">—</span>`;
+    autoBtn.addEventListener('click', () => {
+      forcedClip = null;
+      rows.forEach((r) => r.el.classList.remove('active'));
+      autoBtn.classList.add('active');
+    });
+    root.appendChild(autoBtn);
+  }
+
+  // One-shot clips. kind: 'attack' = upper-body overlay on top of walk/run/
+  // idle; 'jump' = full-body, playback speed matched to physics airtime so
+  // the apex of the clip lines up with the apex of the jump. Priority still
+  // prevents a jump from being cut short by a mid-air attack.
+  let oneShot = null;
+  // JUMP_V=8, GRAVITY=25 in src/lib.rs → airtime = 2*V/G = 0.64s. Keep these
+  // in sync if the physics constants ever change.
+  const JUMP_AIRTIME = 0.64;
+
+  function playOneShot(clipIdx, priority, kind, rate) {
+    if (!animatedAvatar || clipIdx == null || clipIdx < 0) return;
+    const clip = animatedAvatar.skinner.animations[clipIdx];
+    if (!clip) return;
+    const now = performance.now();
+    if (oneShot && oneShot.priority > priority &&
+        now - oneShot.startedAt < oneShot.durMs) {
+      return;
+    }
+    const playbackRate = rate || 1;
+    const natural = Math.max(clip.duration || 0.5, 0.25);
+    oneShot = {
+      clipIdx, priority, kind,
+      startedAt: now,
+      rate: playbackRate,
+      durMs: (natural / playbackRate) * 1000,
+    };
+  }
+  function triggerAttack() {
+    if (!animatedAvatar) return;
+    playOneShot(animatedAvatar.attackIdx, 1, 'attack', 1.0);
+    beep(680, 0.08, 0.12);
+  }
+  function triggerJumpAnim() {
+    if (!animatedAvatar) return;
+    const clip = animatedAvatar.skinner.animations[animatedAvatar.jumpIdx];
+    // Scale clip so its duration matches physics airtime — apex of the clip
+    // lines up with apex of the arc. Clip longer than airtime → rate > 1.
+    const rate = (clip && clip.duration > 0) ? (clip.duration / JUMP_AIRTIME) : 1;
+    playOneShot(animatedAvatar.jumpIdx, 2, 'jump', rate);
+  }
+  async function bindCharacter() {
+    const ap = await loadAnimatedAvatar();
+    if (!ap) return;
+    characterMeshId = ap.meshId;
+    wasm.set_entity_mesh(wasm.player_body_entity(), characterMeshId);
+  }
+  await bindCharacter();
+  buildAnimDebugPanel();
+
+  // Pick whichever character the user last selected; if the roster is empty
+  // we stay in "choose a character" mode and the avatar uses defaults until
+  // the user hits Create. Either way the world runs live behind the panel.
+  renderCharacterList();
+  if (characters.length > 0) {
+    selectCharacter(characters[0].id);
+    dismissCharcreate();
+  } else {
+    openCharcreate();
+    wasm.apply_character(0);
+  }
+
+  document.getElementById('cc_enter').addEventListener('click', () => {
+    const name = ccName.value.trim();
+    if (!name) { ccName.focus(); return; }
+    const c = {
+      id: 'c_' + Math.random().toString(36).slice(2, 10),
+      name, class_: newClass, createdAt: Date.now(),
+    };
+    characters.push(c);
+    saveCharacters();
+    selectCharacter(c.id);
+    ccName.value = '';
+    dismissCharcreate();
+  });
+  ccName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('cc_enter').click();
+  });
+
+  // ---- Input wiring ----
+  // Desktop: clicking the canvas requests pointer lock; clicks inside the
+  // charcreate panel stay on the panel. Mobile skips pointer lock entirely.
+  const isTouchEnv = (matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+  canvas.addEventListener('click', () => {
+    if (isTouchEnv) return;
+    if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  });
+  // Initial overlay only pops up after pointer lock is lost (e.g. Esc).
+  ccOverlay.classList.add('hidden');
+  ccOverlay.addEventListener('click', () => {
+    if (isTouchEnv) { ccOverlay.classList.add('hidden'); return; }
+    canvas.requestPointerLock();
+  });
+  document.addEventListener('pointerlockchange', () => {
+    // Only show overlay when lock is lost *and* the charcreate panel is
+    // already dismissed — otherwise the user is still picking a character.
+    const hasLock = document.pointerLockElement === canvas;
+    const ccOpen = !ccRoot.classList.contains('hidden');
+    ccOverlay.classList.toggle('hidden', hasLock || ccOpen || isTouchEnv);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (document.pointerLockElement === canvas)
+      wasm.on_mouse_move(e.movementX, e.movementY);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (document.pointerLockElement === canvas) {
+      wasm.on_mouse_button(e.button, 1);
+      if (e.button === 0) triggerAttack();
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('mouseup', (e) => {
+    if (document.pointerLockElement === canvas) {
+      wasm.on_mouse_button(e.button, 0);
+    }
+  });
+  document.addEventListener('contextmenu', (e) => {
+    if (document.pointerLockElement === canvas) e.preventDefault();
+  });
+  // Lose focus (tab-switch, alt-tab) — release any stuck keys so we don't
+  // come back to the tab with WASD jammed on.
+  const releaseAllKeys = () => {
+    for (let i = 0; i < 10; i++) wasm.on_key(i, 0);
+  };
+  addEventListener('blur', releaseAllKeys);
+  addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement !== canvas) releaseAllKeys();
+  });
+  // Wheel zoom: WoW-style third-person distance. Normalise deltaMode for touchpads.
+  canvas.addEventListener('wheel', (e) => {
+    if (document.pointerLockElement !== canvas) return;
+    let d = e.deltaY;
+    if (e.deltaMode === 1) d *= 16;
+    else if (e.deltaMode === 2) d *= innerHeight;
+    wasm.on_wheel(d);
+    e.preventDefault();
+  }, { passive: false });
+  // Read the grounded flag Rust publishes on STATS[10] each frame so we only
+  // play the jump clip on presses that actually lift the player off the ground.
+  function isGrounded() {
+    const v = new Float32Array(memory.buffer, statsPtr, 12);
+    return v[10] > 0.5;
+  }
+  // Skip key routing when focus is on a form field — otherwise typing W in
+  // the character-name input also walks the player AND preventDefault
+  // swallows the keystroke so the user can't type.
+  const isTypingTarget = (t) => {
+    if (!t) return false;
+    const tag = t.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+  };
+  addEventListener('keydown', (e) => {
+    if (isTypingTarget(e.target)) return;
+    if (e.code === 'KeyM') { toggleMusic(); e.preventDefault(); return; }
+    if (e.code === 'Slash' && e.shiftKey) {
+      document.getElementById('help').classList.toggle('open');
+      e.preventDefault();
+      return;
+    }
+    if (e.code === 'Escape') {
+      document.getElementById('help').classList.remove('open');
+    }
+    if (e.code === 'KeyP' && document.pointerLockElement === canvas) {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        a.href = url; a.download = `walk-${ts}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 'image/png');
+      e.preventDefault();
+      return;
+    }
+    if (KEY[e.code] !== undefined) {
+      if (e.code === 'Space' && !e.repeat && isGrounded()) triggerJumpAnim();
+      wasm.on_key(KEY[e.code], 1);
+      e.preventDefault();
+    }
+  });
+  addEventListener('keyup', (e) => {
+    if (isTypingTarget(e.target)) return;
+    if (KEY[e.code] !== undefined) { wasm.on_key(KEY[e.code], 0); e.preventDefault(); }
+  });
+
+  // Touch controls: left half = virtual stick (WASD), right half = drag to
+  // look. Tap on the right half also triggers attack (for players who
+  // don't notice the on-screen button). Jump + Attack have dedicated
+  // on-screen buttons anchored to the bottom-right (see #touchpad).
+  const isTouch = (matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+  if (isTouch) {
+    document.getElementById('touchpad').classList.add('on');
+    document.getElementById('stick').classList.add('on');
+    document.body.classList.add('touch');
+  }
+
+  // ---- Virtual joystick (left-bottom) ----
+  const stickEl = document.getElementById('stick');
+  const stickThumb = document.getElementById('stick_thumb');
+  let stickTouchId = null;
+  // Current WASD state driven by the stick, to avoid redundant wasm.on_key calls.
+  const stickKeys = [0, 0, 0, 0];
+  function setStickKey(code, v) {
+    if (stickKeys[code] === v) return;
+    stickKeys[code] = v;
+    wasm.on_key(code, v);
+  }
+  function updateStickFromTouch(x, y) {
+    const rect = stickEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = rect.width / 2 - 10;
+    let dx = x - cx, dy = y - cy;
+    const mag = Math.hypot(dx, dy);
+    if (mag > maxR) { dx = dx / mag * maxR; dy = dy / mag * maxR; }
+    stickThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+    const nx = dx / maxR, ny = dy / maxR;
+    const TH = 0.3;
+    setStickKey(0, ny < -TH ? 1 : 0);  // W (forward)
+    setStickKey(2, ny >  TH ? 1 : 0);  // S (back)
+    setStickKey(1, nx < -TH ? 1 : 0);  // A (strafe left)
+    setStickKey(3, nx >  TH ? 1 : 0);  // D (strafe right)
+  }
+  function releaseStick() {
+    stickTouchId = null;
+    stickEl.classList.remove('active');
+    stickThumb.style.transform = 'translate(0, 0)';
+    for (let i = 0; i < 4; i++) setStickKey(i, 0);
+  }
+  stickEl.addEventListener('touchstart', (e) => {
+    if (stickTouchId !== null) return;
+    const t = e.changedTouches[0];
+    stickTouchId = t.identifier;
+    stickEl.classList.add('active');
+    updateStickFromTouch(t.clientX, t.clientY);
+    e.preventDefault(); e.stopPropagation();
+  }, { passive: false });
+  stickEl.addEventListener('touchmove', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === stickTouchId) {
+        updateStickFromTouch(t.clientX, t.clientY);
+        break;
+      }
+    }
+    e.preventDefault(); e.stopPropagation();
+  }, { passive: false });
+  const stickEnd = (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === stickTouchId) { releaseStick(); break; }
+    }
+    e.preventDefault(); e.stopPropagation();
+  };
+  stickEl.addEventListener('touchend', stickEnd, { passive: false });
+  stickEl.addEventListener('touchcancel', stickEnd, { passive: false });
+
+  // ---- Canvas touch: drag-to-look + tap-to-attack. Any touch that starts on
+  //      a button (#touchpad / #stick) never reaches here because those
+  //      elements stopPropagation.
+  const lookTouches = new Map();  // identifier → { x, y, startT, moved }
+  canvas.addEventListener('touchstart', (e) => {
+    for (const t of e.changedTouches) {
+      lookTouches.set(t.identifier, {
+        x: t.clientX, y: t.clientY, startT: performance.now(), moved: false,
+      });
+    }
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    for (const t of e.changedTouches) {
+      const rec = lookTouches.get(t.identifier);
+      if (!rec) continue;
+      const dx = t.clientX - rec.x;
+      const dy = t.clientY - rec.y;
+      wasm.on_mouse_move(dx * 1.2, dy * 1.2);
+      rec.x = t.clientX; rec.y = t.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) rec.moved = true;
+    }
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) {
+      const rec = lookTouches.get(t.identifier);
+      if (!rec) continue;
+      const dur = performance.now() - rec.startT;
+      if (!rec.moved && dur < 250) triggerAttack();
+      lookTouches.delete(t.identifier);
+    }
+  });
+  canvas.addEventListener('touchcancel', (e) => {
+    for (const t of e.changedTouches) lookTouches.delete(t.identifier);
+  });
+
+  // ---- Mobile action buttons ----
+  function wireTouchButton(id, onDown, onUp) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+    el.addEventListener('touchstart', (e) => { stop(e); onDown && onDown(); }, { passive: false });
+    el.addEventListener('touchend',   (e) => { stop(e); onUp && onUp(); }, { passive: false });
+    el.addEventListener('touchcancel', (e) => { stop(e); onUp && onUp(); }, { passive: false });
+    el.addEventListener('mousedown', (e) => { stop(e); onDown && onDown(); });
+    el.addEventListener('mouseup',   (e) => { stop(e); onUp && onUp(); });
+    el.addEventListener('contextmenu', stop);
+  }
+  wireTouchButton('btn_attack',
+    () => { wasm.on_mouse_button(0, 1); triggerAttack(); },
+    () => { wasm.on_mouse_button(0, 0); });
+  wireTouchButton('btn_jump',
+    () => { if (isGrounded()) triggerJumpAnim(); wasm.on_key(4, 1); },
+    () => { wasm.on_key(4, 0); });
+
+  // Gamepad input polling.
+  const gpState = { buttons: [], w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
+  function pollGamepad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pad = null;
+    for (const p of pads) { if (p) { pad = p; break; } }
+    if (!pad) return;
+
+    const DEAD = 0.18;
+    const ap = (v) => (Math.abs(v) < DEAD ? 0 : v);
+    const lx = ap(pad.axes[0] || 0), ly = ap(pad.axes[1] || 0);
+    const rx = ap(pad.axes[2] || 0), ry = ap(pad.axes[3] || 0);
+    const anyBtn = pad.buttons.some((b) => b && b.pressed);
+    const active = lx || ly || rx || ry || anyBtn;
+    if (!active && gpState.buttons.every((x) => !x)) return;
+
+    // Move via left stick.
+    const setK = (key, v) => {
+      const k = ['w','a','s','d'][key];
+      if (gpState[k] !== v) { gpState[k] = v; wasm.on_key(key, v); }
+    };
+    setK(0, ly < -0.3 ? 1 : 0);
+    setK(2, ly >  0.3 ? 1 : 0);
+    setK(1, lx < -0.3 ? 1 : 0);
+    setK(3, lx >  0.3 ? 1 : 0);
+
+    // Look via right stick.
+    if (rx || ry) wasm.on_mouse_move(rx * 16, ry * 16);
+
+    // Buttons.
+    const btn = (i) => (pad.buttons[i] && pad.buttons[i].pressed) ? 1 : 0;
+    const prev = (i) => gpState.buttons[i] || 0;
+    const edge = (i) => btn(i) && !prev(i);
+    const edgeUp = (i) => !btn(i) && prev(i);
+
+    // A (0) jump — hold
+    if (gpState.space !== btn(0)) { gpState.space = btn(0); wasm.on_key(4, btn(0)); }
+    // LB (4) sprint — hold
+    if (gpState.shift !== btn(4)) { gpState.shift = btn(4); wasm.on_key(5, btn(4)); }
+    // Y (3) toggle view
+    if (edge(3)) wasm.on_key(6, 1);
+    // X (2) toggle fly
+    if (edge(2)) wasm.on_key(7, 1);
+    // RT (7) — attack
+    if (edge(7)) wasm.on_mouse_button(0, 1);
+    if (edgeUp(7)) wasm.on_mouse_button(0, 0);
+    // LT (6) — zoom
+    if (edge(6)) wasm.on_mouse_button(2, 1);
+    if (edgeUp(6)) wasm.on_mouse_button(2, 0);
+
+    gpState.buttons = pad.buttons.map((b) => (b && b.pressed ? 1 : 0));
+  }
+
+  // No default quests while the scene is a blank plane — the old giver NPCs
+  // have been stripped, so there's nothing to anchor markers to. Drop any
+  // stale saved progress so a leftover turnedIn flag doesn't persist.
+  try { localStorage.removeItem(QUEST_SAVE_KEY); } catch (_) {}
+
+  const statsEl = document.getElementById('stats');
+  const statsPtr = wasm.stats_ptr();
+  const questsEl = document.getElementById('quests');
+  let lastQuestJson = '';
+  function renderQuests() {
+    const len = wasm.quest_json_len();
+    if (len === 0) { questsEl.innerHTML = ''; return; }
+    const jsonStr = decoder.decode(new Uint8Array(memory.buffer, wasm.quest_json_ptr(), len));
+    if (jsonStr === lastQuestJson) return;
+    lastQuestJson = jsonStr;
+    localStorage.setItem(QUEST_SAVE_KEY, jsonStr);
+    let arr;
+    try { arr = JSON.parse(jsonStr); } catch (_) { return; }
+    const html = arr.filter((q) => !q.turnedIn).map((q) => {
+      const allDone = q.objectives.every((o) => o.progress >= o.required);
+      const cls = !q.accepted ? 'new' : (allDone ? 'done' : '');
+      const body = !q.accepted
+        ? `<div class="sub">${q.desc}<br>approach giver to accept</div>`
+        : q.objectives.map((o) => {
+            const done = o.progress >= o.required;
+            return `<div class="obj${done ? ' done' : ''}">• ${o.desc} (${o.progress}/${o.required})</div>`;
+          }).join('');
+      const footer = q.accepted && allDone
+        ? `<div class="sub ready">return to giver</div>` : '';
+      return `<div class="q ${cls}"><div class="title">${q.title}</div>${body}${footer}</div>`;
+    }).join('');
+    questsEl.innerHTML = html;
+  }
+
+  const mmCanvas = document.getElementById('minimap');
+  const mmCtx = mmCanvas.getContext('2d');
+  const MM_SIZE = 160, MM_RANGE = 50;
+  const MM_SCALE = MM_SIZE / (MM_RANGE * 2);
+  function drawMinimap() {
+    const ctx = mmCtx;
+    ctx.fillStyle = '#1a2a1f';
+    ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+
+    const v = new Float32Array(memory.buffer, statsPtr, 8);
+    const px = v[0], pz = v[2], yaw = v[3];
+
+    // NPCs.
+    const ncount = wasm.npc_count();
+    if (ncount > 0) {
+      const narr = new Float32Array(memory.buffer, wasm.npc_data_ptr(), ncount * 2);
+      ctx.fillStyle = '#f8a840';
+      for (let i = 0; i < narr.length; i += 2) {
+        const dx = narr[i] - px;
+        const dz = narr[i + 1] - pz;
+        if (Math.abs(dx) > MM_RANGE || Math.abs(dz) > MM_RANGE) continue;
+        const sx = MM_SIZE / 2 + dx * MM_SCALE;
+        const sy = MM_SIZE / 2 + dz * MM_SCALE;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Compass ring.
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.arc(MM_SIZE / 2, MM_SIZE / 2, MM_SIZE / 2 - 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Player arrow.
+    ctx.save();
+    ctx.translate(MM_SIZE / 2, MM_SIZE / 2);
+    ctx.rotate(-yaw);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.lineTo(4, 4);
+    ctx.lineTo(-4, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // N label.
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px ui-monospace, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('N', MM_SIZE / 2, 10);
+  }
+
+  let fpsAccum = 0, fpsFrames = 0, fps = 0;
+  let hudTick = 0;
+
+  const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const compass = (yaw) => {
+    // yaw=0 faces -Z (north). yaw increases CCW.
+    let deg = ((-yaw * 180 / Math.PI) % 360 + 360) % 360;
+    return COMPASS[Math.round(deg / 45) % 8];
+  };
+
+  // Nameplate projection tied to Rust's per-frame NDC write.
+  const nameplateEl = document.getElementById('nameplate');
+  const nameplatePtr = wasm.nameplate_ptr();
+  function updateNameplate() {
+    const np = new Float32Array(memory.buffer, nameplatePtr, 3);
+    if (np[2] < 0.5) { nameplateEl.style.display = 'none'; return; }
+    const sx = (np[0] + 1) * 0.5 * innerWidth;
+    const sy = (1 - np[1]) * 0.5 * innerHeight;
+    nameplateEl.style.display = 'block';
+    nameplateEl.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
+    if (nameplateEl.textContent !== cc.name) nameplateEl.textContent = cc.name;
+  }
+
+  // ================================================================
+  // Multiplayer: short-polling against the Rust server's /sync endpoint.
+  // Each client assigns itself a random id for this session, POSTs its
+  // state every ~150ms, and renders everyone else returned by the server.
+  // Remote players borrow the local player's mesh handle, so they show the
+  // same rig and animation as the local player — cheap to implement and
+  // still makes the world feel populated. A dedicated skinner per remote
+  // would be nicer and is a future upgrade.
+  // ================================================================
+  const myClientId = 'p_' + Math.random().toString(36).slice(2, 10);
+  const remotePlayers = new Map();  // id -> { entityIdx, x, y, z, yaw, name, class_, speed, anim, lastSeen, nameEl }
+  const CLASS_TINTS = [
+    [0.95, 0.60, 0.55],  // Warrior: warm red
+    [0.62, 0.90, 0.55],  // Hunter: forest green
+    [0.65, 0.70, 1.00],  // Mage: arcane blue
+  ];
+
+  // Spawn a fresh skinned-mesh instance of the hero for a remote player.
+  // Each remote gets its own VBO + skinner so its animations (walk/run/jump/
+  // attack) are independent of the local player.
+  function spawnRemoteSkinnedMesh() {
+    if (!animatedAvatar || !animatedAvatar.glb) return null;
+    const meshId = uploadMeshToWasm(animatedAvatar.seed, animatedAvatar.glb.indices);
+    if (animatedAvatar.texHandle) wasm.set_mesh_texture(meshId, animatedAvatar.texHandle);
+    const skinner = makeSkinner(animatedAvatar.glb, meshId);
+    return { meshId, skinner };
+  }
+
+  function ensureRemotePlayer(id) {
+    let rp = remotePlayers.get(id);
+    if (rp) return rp;
+    const inst = spawnRemoteSkinnedMesh();
+    if (!inst) return null;
+    const entityIdx = wasm.spawn_entity(inst.meshId);
+    wasm.set_entity_hidden(entityIdx, 0);
+    rp = {
+      entityIdx, meshId: inst.meshId, skinner: inst.skinner,
+      // `x/y/z/yaw` = authoritative target (latest from server).
+      // `rx/ry/rz/ryaw` = rendered transform (drifts toward the target each
+      // frame). Without this drift-follow the entity teleports once per poll.
+      x: 0, y: 0, z: 0, yaw: 0,
+      rx: 0, ry: 0, rz: 0, ryaw: 0,
+      primed: false,
+      name: '', class_: 0,
+      speed: 0, speedSmooth: 0,
+      anim: 'idle', lastAnim: 'idle',
+      animT: 0, oneShot: null,
+      lastSeen: performance.now(),
+    };
+    remotePlayers.set(id, rp);
+    return rp;
+  }
+  function removeRemotePlayer(id) {
+    const rp = remotePlayers.get(id);
+    if (!rp) return;
+    wasm.set_entity_hidden(rp.entityIdx, 1);
+    remotePlayers.delete(id);
+  }
+  function parsePlayersResponse(text) {
+    // "id|name|class|x|y|z|yaw|speed|anim\n..."
+    const seen = new Set();
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (!line) continue;
+      const parts = line.split('|');
+      if (parts.length < 8) continue;
+      const [id, name, klass, x, y, z, yaw, speed, anim] = parts;
+      const rp = ensureRemotePlayer(id);
+      if (!rp) continue;
+      rp.name = name;
+      rp.class_ = Math.max(0, Math.min(2, +klass | 0));
+      rp.x = +x; rp.y = +y; rp.z = +z;
+      rp.yaw = +yaw; rp.speed = +speed;
+      // First packet: snap the rendered transform to the target so the avatar
+      // doesn't fly in from (0,0,0). Subsequent packets are smoothed.
+      if (!rp.primed) {
+        rp.rx = rp.x; rp.ry = rp.y; rp.rz = rp.z; rp.ryaw = rp.yaw;
+        rp.primed = true;
+      }
+      // Snap-on-teleport: if the target jumped a huge distance in one poll
+      // (>6 m horizontal) the remote probably recentered, reset rather than
+      // dragging the render across the map.
+      const ddx = rp.x - rp.rx, ddz = rp.z - rp.rz;
+      if (ddx*ddx + ddz*ddz > 36) {
+        rp.rx = rp.x; rp.ry = rp.y; rp.rz = rp.z; rp.ryaw = rp.yaw;
+      }
+      const newAnim = anim || 'idle';
+      // Trigger a one-shot the FIRST time we see a transient anim state, so
+      // the remote clip plays through even if the server stops reporting
+      // 'jump' / 'attack' between heartbeats.
+      if (newAnim !== rp.lastAnim && animatedAvatar) {
+        if (newAnim === 'jump') {
+          const clip = animatedAvatar.skinner.animations[animatedAvatar.jumpIdx];
+          const rate = (clip && clip.duration > 0) ? (clip.duration / JUMP_AIRTIME) : 1;
+          rp.oneShot = { kind: 'jump', clipIdx: animatedAvatar.jumpIdx, startedAt: performance.now(),
+                         rate, durMs: (Math.max(clip.duration || 0.5, 0.25) / rate) * 1000 };
+        } else if (newAnim === 'attack') {
+          const clip = animatedAvatar.skinner.animations[animatedAvatar.attackIdx];
+          rp.oneShot = { kind: 'attack', clipIdx: animatedAvatar.attackIdx, startedAt: performance.now(),
+                         rate: 1, durMs: Math.max(clip.duration || 0.5, 0.25) * 1000 };
+        }
+      }
+      rp.lastAnim = newAnim;
+      rp.anim = newAnim;
+      rp.lastSeen = performance.now();
+      seen.add(id);
+      const tint = CLASS_TINTS[rp.class_] || [1, 1, 1];
+      wasm.set_entity_tint(rp.entityIdx, tint[0], tint[1], tint[2]);
+    }
+    const now = performance.now();
+    for (const [id, rp] of remotePlayers) {
+      if (!seen.has(id) && now - rp.lastSeen > 6000) removeRemotePlayer(id);
+    }
+  }
+
+  async function syncHeartbeat(localSpeed, localAnim) {
+    if (!wasm || !memory) return;
+    const v = new Float32Array(memory.buffer, statsPtr, 12);
+    // Broadcast the smoothed body yaw (STATS[6]) rather than the camera yaw
+    // so remotes render us facing where we're actually moving.
+    const [x, y, z, bodyYaw] = [v[0], v[1], v[2], v[6]];
+    const fy = y - 1.7;
+    const params = new URLSearchParams({
+      id: myClientId,
+      name: cc.name || 'Traveler',
+      class: String(cc.class_ | 0),
+      x: x.toFixed(2), y: fy.toFixed(2), z: z.toFixed(2),
+      yaw: bodyYaw.toFixed(4), speed: localSpeed.toFixed(2),
+      anim: localAnim || 'idle',
+    });
+    try {
+      const r = await fetch('/sync?' + params.toString(), { cache: 'no-store' });
+      if (r.ok) parsePlayersResponse(await r.text());
+    } catch (_) { /* server down or offline — try again next tick */ }
+  }
+  let lastHeartbeat = 0;
+  function updateRemotePlayers(dt, localSpeed, localAnim) {
+    const now = performance.now();
+    if (now - lastHeartbeat > 150) {
+      lastHeartbeat = now;
+      syncHeartbeat(localSpeed, localAnim);
+    }
+
+    // Smoothing strength. Rate=12 gives ~80 ms response time — a little over
+    // half the heartbeat interval, so the render always has a known target
+    // ahead of it and the drift stays perceptually continuous.
+    const POS_RATE = 12;
+    const YAW_RATE = 14;
+    const kp = 1 - Math.exp(-Math.max(dt, 0) * POS_RATE);
+    const ky = 1 - Math.exp(-Math.max(dt, 0) * YAW_RATE);
+
+    for (const [, rp] of remotePlayers) {
+      // Drift the rendered transform toward the last-reported target.
+      rp.rx += (rp.x - rp.rx) * kp;
+      rp.ry += (rp.y - rp.ry) * kp;
+      rp.rz += (rp.z - rp.rz) * kp;
+      let dyaw = rp.yaw - rp.ryaw;
+      while (dyaw >  Math.PI) dyaw -= 2 * Math.PI;
+      while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+      rp.ryaw += dyaw * ky;
+
+      wasm.set_entity_pos(rp.entityIdx, rp.rx, rp.ry, rp.rz);
+      // Remote yaw arrives already in body-space (includes the π mesh-forward
+      // offset), so apply it directly — do NOT invert here.
+      wasm.set_entity_yaw(rp.entityIdx, rp.ryaw);
+
+      if (!rp.skinner || !animatedAvatar) continue;
+
+      if (rp.oneShot && now - rp.oneShot.startedAt > rp.oneShot.durMs) rp.oneShot = null;
+
+      // Smooth the reported speed too — 150 ms samples are themselves noisy,
+      // and we don't want walk/run to flicker on/off at the anim threshold.
+      rp.speedSmooth += (rp.speed - rp.speedSmooth) * Math.min(1, dt * 5);
+      const spd = rp.speedSmooth;
+
+      let baseIdx = -1, baseTime = 0;
+      if (spd > 7.0) {
+        baseIdx = animatedAvatar.runIdx;
+        rp.animT += dt;
+        baseTime = rp.animT;
+      } else if (spd > 0.8) {
+        baseIdx = animatedAvatar.walkIdx;
+        rp.animT += dt * Math.max(0.6, spd / 5.5);
+        baseTime = rp.animT;
+      } else {
+        rp.animT = 0;
+      }
+
+      let upperIdx = -1, upperTime = 0;
+      if (rp.oneShot) {
+        const t = (now - rp.oneShot.startedAt) / 1000 * rp.oneShot.rate;
+        if (rp.oneShot.kind === 'jump') {
+          baseIdx = rp.oneShot.clipIdx; baseTime = t;
+        } else {
+          upperIdx = rp.oneShot.clipIdx; upperTime = t;
+        }
+      }
+
+      rp.skinner.update(dt, { baseIdx, baseTime, upperIdx, upperTime });
+    }
+  }
+
+  let last = performance.now();
+  let animT = 0;
+  let lastPx = 0, lastPz = 0;  // for horizontal-speed anim sync
+  let speedSmooth = 0;
+  let lastAnimDebug = '';
+  const tick = (now) => {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    fpsAccum += dt; fpsFrames++;
+    if (fpsAccum >= 0.33) { fps = Math.round(fpsFrames / fpsAccum); fpsAccum = 0; fpsFrames = 0; }
+
+    pollGamepad();
+
+    // Drive the local character's skinning animation. The skinner now does
+    // per-frame crossfade smoothing internally — we just tell it what the
+    // target pose should be (base clip + optional upper-body overlay) and it
+    // blends toward it. See makeSkinner() for the smoothing math.
+    let localSpeed = 0;
+    let localAnim = 'idle';
+    let animDebug = 'n/a';
+    if (animatedAvatar) {
+      if (oneShot && performance.now() - oneShot.startedAt > oneShot.durMs) {
+        oneShot = null;
+      }
+      const v = new Float32Array(memory.buffer, statsPtr, 4);
+      const px = v[0], pz = v[2];
+      const dx = px - lastPx, dz = pz - lastPz;
+      const rawSpeed = dt > 0 ? Math.hypot(dx, dz) / dt : 0;
+      speedSmooth += (rawSpeed - speedSmooth) * Math.min(1, dt * 5);
+      localSpeed = speedSmooth;
+      lastPx = px; lastPz = pz;
+      const clips = animatedAvatar.skinner.animations;
+      const clipName = (idx) => (clips[idx] && clips[idx].name) || ('#' + idx);
+
+      if (forcedClip !== null) {
+        animT += dt;
+        animatedAvatar.skinner.update(dt, { baseIdx: forcedClip, baseTime: animT });
+        animDebug = `FORCED #${forcedClip} ${clipName(forcedClip)}`;
+      } else {
+        // Figure out the lower-body clip (base).
+        let baseIdx = -1, baseTime = 0, baseLabel = 'bind';
+        if (localSpeed > 0.8) {
+          const sprint = localSpeed > 7.0;
+          baseIdx = sprint ? animatedAvatar.runIdx : animatedAvatar.walkIdx;
+          animT += dt * (sprint ? 1.0 : Math.max(0.6, localSpeed / 5.5));
+          baseTime = animT;
+          baseLabel = sprint ? 'run' : 'walk';
+        } else {
+          // Idle: keep animT quiet so the next walk doesn't spring forward.
+          animT = 0;
+        }
+
+        // Layer one-shots. Jump takes over the whole body (leg motion is part
+        // of the clip). Attack is upper-body only so legs keep walking/running.
+        let upperIdx = -1, upperTime = 0;
+        if (oneShot) {
+          const t = (performance.now() - oneShot.startedAt) / 1000 * oneShot.rate;
+          if (oneShot.kind === 'jump') {
+            baseIdx = oneShot.clipIdx; baseTime = t;
+            baseLabel = `jump@${oneShot.rate.toFixed(2)}x`;
+          } else {
+            upperIdx = oneShot.clipIdx; upperTime = t;
+          }
+        }
+
+        animatedAvatar.skinner.update(dt, { baseIdx, baseTime, upperIdx, upperTime });
+
+        // Derive the compact anim tag we broadcast over the network so remote
+        // clients can drive their own skinners.
+        if (oneShot && oneShot.kind === 'jump') localAnim = 'jump';
+        else if (oneShot && oneShot.kind === 'attack') localAnim = 'attack';
+        else if (localSpeed > 7.0) localAnim = 'run';
+        else if (localSpeed > 0.8) localAnim = 'walk';
+        else localAnim = 'idle';
+
+        if (upperIdx >= 0) {
+          animDebug = `${baseLabel}+atk ${clipName(upperIdx)}`;
+        } else if (baseIdx >= 0) {
+          animDebug = `${baseLabel} ${clipName(baseIdx)}`;
+        } else {
+          animDebug = 'idle (bind target)';
+        }
+      }
+    }
+    lastAnimDebug = animDebug;
+    updateRemotePlayers(dt, localSpeed, localAnim);
+
+    wasm.frame(dt);
+
+    if (hudTick % 3 === 0) drawMinimap();
+    if (hudTick % 6 === 0) renderQuests();
+    updateNameplate();
+
+    if (++hudTick % 5 === 0) {
+      const v = new Float32Array(memory.buffer, statsPtr, 12);
+      const dayT = v[4];
+      const hr = ((dayT / (Math.PI * 2)) * 24 + 6) % 24;
+      const hh = Math.floor(hr);
+      const mm = Math.floor((hr - hh) * 60);
+      const mode = v[7] > 0.5 ? 'FREE' : (v[5] > 0.5 ? 'TPS' : 'FPS');
+      const rain = v[8];
+      const flash = v[9];
+      const forced = v[11] > 0.5;
+      let weather;
+      if (flash > 0.05) weather = '\u26a1';
+      else if (rain > 0.65) weather = 'storm';
+      else if (rain > 0.15) weather = 'rain';
+      else weather = 'clear';
+      if (forced) weather += '*';
+      const grounded = v[10] > 0.5 ? 'gnd' : 'air';
+      statsEl.innerText =
+        `${fps} fps\n` +
+        `x ${v[0].toFixed(1)}  y ${v[1].toFixed(1)}  z ${v[2].toFixed(1)}\n` +
+        `${compass(v[3])}  ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}  ${mode}  ${weather}\n` +
+        `${lastAnimDebug}  v=${speedSmooth.toFixed(2)}  ${grounded}`;
+    }
+
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

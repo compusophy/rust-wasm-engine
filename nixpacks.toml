@@ -1,0 +1,10 @@
+# Railway / Nixpacks config. Plain `cargo build --release` fails because our
+# `[lib] crate-type = ["cdylib"]` target is meant for wasm32 and has unresolved
+# externs when built for Linux. Pin the build + start commands to the `server`
+# binary so Railway only touches what's actually runnable on the host.
+
+[phases.build]
+cmds = ["cargo build --release --bin server"]
+
+[start]
+cmd = "./target/release/server"
