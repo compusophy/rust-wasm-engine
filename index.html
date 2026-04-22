@@ -2,10 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>walk</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
-  canvas#c { display: block; width: 100%; height: 100%; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #000; overflow: hidden;
+    font-family: system-ui, sans-serif;
+    /* Block the browser's built-in pinch-zoom / double-tap-zoom / pull-to-
+       refresh gestures — they warp the UI in the middle of gameplay. Input
+       elements override this below so text fields still behave normally. */
+    touch-action: none;
+    -ms-touch-action: none;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  input, textarea { touch-action: manipulation; -webkit-user-select: text; user-select: text; }
+  canvas#c { display: block; width: 100%; height: 100%; touch-action: none; }
   /* In-world FPS / coords readout. Kept tiny since it's just a debug line.
      Background chip gives it contrast against bright sky. */
   #stats {
@@ -1335,6 +1350,30 @@
   addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement !== canvas) releaseAllKeys();
   });
+
+  // ---- Block page-level pinch / double-tap zoom ----
+  // iOS Safari fires legacy gesture* events even with `user-scalable=no`
+  // in the viewport meta. Cancelling them stops the pinch from warping the
+  // whole UI. `touchmove` with >1 touch covers Android; `wheel` with ctrlKey
+  // is desktop Ctrl+scroll and trackpad pinch.
+  const stopGesture = (e) => { e.preventDefault(); };
+  document.addEventListener('gesturestart',  stopGesture, { passive: false });
+  document.addEventListener('gesturechange', stopGesture, { passive: false });
+  document.addEventListener('gestureend',    stopGesture, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+  // Suppress the 300 ms double-tap zoom on iOS <16 even if the viewport
+  // meta is honored — two quick taps near each other still trigger zoom in
+  // some standalone webviews.
+  let lastTapAt = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTapAt < 350) e.preventDefault();
+    lastTapAt = now;
+  }, { passive: false });
+  // Desktop trackpad pinch (Ctrl+wheel) — browser zoom, not our camera zoom.
+  addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
   // Wheel zoom: WoW-style third-person distance. Normalise deltaMode for touchpads.
   canvas.addEventListener('wheel', (e) => {
     if (document.pointerLockElement !== canvas) return;
